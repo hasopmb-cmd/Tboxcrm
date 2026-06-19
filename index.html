@@ -170,16 +170,21 @@ canvas{max-width:100%}
 <div class="toast" id="toast"></div>
 
 <script>
-/* ====== CẤU HÌNH ======
-   SHEET_ID = ID Google Sheet (để ĐỌC).  API_URL = URL Apps Script .../exec (để GHI).
-   Sheet phải có các tab: Nhân viên, Khách hàng, ChamSoc, Trạng thái, Nguồn khách, Khu vực, ThuChi
-   và để chế độ chia sẻ "Bất kỳ ai có liên kết = Người xem".
-   Nhanh qua URL: index.html?sheet=ID&api=URL  */
-let SHEET_ID = '';
-let API_URL  = '';
+/* ====== CẤU HÌNH — THAY 2 DÒNG DƯỚI ĐÂY ======
+   Bước 1: thay 'dán_ID_sheet' bằng ID Google Sheet (đoạn giữa /d/ và /edit).
+   Bước 2: thay 'dán_URL_apps_script/exec' bằng URL Apps Script kết thúc bằng /exec.
+   (Chưa thay thì app vẫn chạy chế độ xem thử; thay xong là tự kết nối CRM.)
+   Sheet cần các tab: Nhân viên, Khách hàng, ChamSoc, SanPham, Trạng thái, Nguồn khách, Khu vực, ThuChi
+   và chia sẻ "Bất kỳ ai có liên kết = Người xem". */
+let SHEET_ID = '11hf18epJ03aQUU1cClAIPw73ylopxiG9d-pfGF-wGco';
+let API_URL  = 'https://script.google.com/macros/s/AKfycbzDLG6a86HIvLE4I7igeVev0Z2NZL6joXxwQdAg93FEiWmhVkzjwpK7fgpgAg1IHW6HRA/exec';
+
 const _qs=new URLSearchParams(location.search);
 if(_qs.get('sheet')) SHEET_ID=_qs.get('sheet');
 if(_qs.get('api'))   API_URL =_qs.get('api');
+// Bỏ qua nếu còn là chữ mẫu 'dán...' (chưa điền)
+if(SHEET_ID.indexOf('dán')===0) SHEET_ID='';
+if(API_URL.indexOf('dán')===0)  API_URL='';
 
 const T={nhanvien:'Nhân viên',khach:'Khách hàng',chamsoc:'ChamSoc',trangthai:'Trạng thái',nguon:'Nguồn khách',khuvuc:'Khu vực',thuchi:'ThuChi',sanpham:'SanPham'};
 
@@ -191,7 +196,8 @@ const DEMO={
   users:[{user:'thanh',pass:'thanh123',name:'Trương Thành',vitri:'Admin',role:'Admin',phongBan:''},
          {user:'cong',pass:'cong123',name:'Trương Công',vitri:'Admin',role:'Admin',phongBan:''},
          {user:'trang',pass:'trang123',name:'Thu Trang',vitri:'Nhân viên',role:'Nhân viên',phongBan:'PHÒNG KINH DOANH'},
-         {user:'dung',pass:'a123',name:'Tống Bá Dũng',vitri:'Nhân viên',role:'Nhân viên',phongBan:'PHÒNG KINH DOANH'}],
+         {user:'dung',pass:'a123',name:'Tống Bá Dũng',vitri:'Nhân viên',role:'Nhân viên',phongBan:'PHÒNG KINH DOANH'},
+         {user:'nam',pass:'nam123',name:'Thái Khắc Nam',vitri:'Nhân viên',role:'Nhân viên',phongBan:'PHÒNG KINH DOANH'}],
   customers:[
     {id:1,ngay:'01/05/2026',ten:'Khách hàng 01',sdt:'09xxx1',ghiChu:'',diaChi:'',tt:'Khách hàng mới',phuTrach:'Nguyễn Thị Minh',nguon:'Khách Google Map',khuVuc:'Hà Nội',doanhThu:0,follow:''},
     {id:2,ngay:'10/05/2026',ten:'Phạm Quốc Anh',sdt:'0903111222',ghiChu:'Quan tâm gói Pro',diaChi:'Hà Nội',tt:'Đang thuyết phục',phuTrach:'Nguyễn Thị Minh',nguon:'Facebook',khuVuc:'Hà Nội',doanhThu:0,follow:''},
@@ -316,6 +322,9 @@ function go(id){
 /* ====== HELPERS ====== */
 const fmt=n=>new Intl.NumberFormat('vi-VN').format(n);
 function color(tt){return DB.statusColors[tt]||STATUS_DEF[tt]||'#888';}
+function isStaff(){return CURRENT&&CURRENT.role==='Nhân viên';}
+function visibleCustomers(){return isStaff()?DB.customers.filter(c=>c.phuTrach===CURRENT.name):DB.customers;}
+function visibleCare(){if(isStaff()){const ids=new Set(visibleCustomers().map(c=>String(c.id)));return DB.care.filter(x=>ids.has(String(x.khId)));}return DB.care;}
 function tag(tt){return `<span class="tag" style="background:${color(tt)}">${tt}</span>`;}
 function todayStr(){const d=new Date();return [d.getDate(),d.getMonth()+1,d.getFullYear()].map(x=>String(x).padStart(2,'0')).join('/');}
 function toast(m){const t=document.getElementById('toast');t.textContent=m;t.className='toast show';setTimeout(()=>t.className='toast',2400);}
@@ -325,7 +334,7 @@ async function apiPost(p){const r=await fetch(API_URL,{method:'POST',body:JSON.s
 
 /* ====== DASHBOARD ====== */
 function renderDashboard(){
-  const C=DB.customers,tong=C.length;
+  const C=visibleCustomers(),tong=C.length;
   const canCham=C.filter(c=>c.follow&&String(c.follow)<=futureStr(7)&&String(c.follow)>=todayStr()).length;
   const dt=C.filter(c=>c.tt==='Đã chốt').reduce((s,c)=>s+c.doanhThu,0);
   const tyle=tong?Math.round(C.filter(c=>c.tt==='Đã chốt').length/tong*100):0;
@@ -355,7 +364,7 @@ function renderDashboard(){
 function kpi(lbl,ico,val,color){return `<div class="kpi"><div class="bar" style="background:${color}"></div><div class="lbl">${ico} ${lbl}</div><div class="val">${val}</div></div>`;}
 function futureStr(days){const d=new Date();d.setDate(d.getDate()+days);return [d.getDate(),d.getMonth()+1,d.getFullYear()].map(x=>String(x).padStart(2,'0')).join('/');}
 function ask(q){
-  if(!q)return;if(typeof askBox!=='undefined')askBox.value='';q=q.toLowerCase();const C=DB.customers;let a='';
+  if(!q)return;if(typeof askBox!=='undefined')askBox.value='';q=q.toLowerCase();const C=visibleCustomers();let a='';
   if(q.includes('chăm')||q.includes('liên hệ')){const l=C.filter(c=>c.follow&&String(c.follow)>=todayStr()&&String(c.follow)<=futureStr(7));a=l.length?'Cần chăm trong 7 ngày: '+l.map(c=>c.ten+' ('+c.follow+')').join(', '):'Không có lịch hẹn trong 7 ngày.';}
   else if(q.includes('mới')){const l=C.filter(c=>c.tt==='Khách hàng mới');a='Khách hàng mới: '+(l.map(c=>c.ten).join(', ')||'không có');}
   else if(q.includes('doanh thu')){const dt=C.filter(c=>c.tt==='Đã chốt').reduce((s,c)=>s+c.doanhThu,0);a='Doanh thu đã chốt: '+fmt(dt)+' đ.';}
@@ -365,43 +374,50 @@ function ask(q){
 function cc(){const s=getComputedStyle(document.body);return{line:s.getPropertyValue('--line'),muted:s.getPropertyValue('--muted')};}
 function destroy(id){if(charts[id]){charts[id].destroy();delete charts[id];}}
 function drawRev(id){if(typeof Chart==='undefined')return;destroy(id);const c=cc();charts[id]=new Chart(document.getElementById(id),{type:'bar',data:{labels:DB.revenue.map(r=>r.thang),datasets:[{label:'Kế hoạch',data:DB.revenue.map(r=>r.kh),backgroundColor:'#c7c7f5',borderRadius:6},{label:'Thực tế',data:DB.revenue.map(r=>r.tt),backgroundColor:'#5b5bd6',borderRadius:6}]},options:{responsive:true,plugins:{legend:{labels:{color:c.muted}}},scales:{x:{ticks:{color:c.muted},grid:{display:false}},y:{ticks:{color:c.muted},grid:{color:c.line}}}}});}
-function drawStatus(id){if(typeof Chart==='undefined')return;destroy(id);const c=cc();const cnt={};DB.customers.forEach(x=>cnt[x.tt]=(cnt[x.tt]||0)+1);charts[id]=new Chart(document.getElementById(id),{type:'doughnut',data:{labels:Object.keys(cnt),datasets:[{data:Object.values(cnt),backgroundColor:Object.keys(cnt).map(k=>color(k)),borderWidth:0}]},options:{responsive:true,cutout:'62%',plugins:{legend:{position:'bottom',labels:{color:c.muted,padding:12}}}}});}
+function drawStatus(id){if(typeof Chart==='undefined')return;destroy(id);const c=cc();const cnt={};visibleCustomers().forEach(x=>cnt[x.tt]=(cnt[x.tt]||0)+1);charts[id]=new Chart(document.getElementById(id),{type:'doughnut',data:{labels:Object.keys(cnt),datasets:[{data:Object.values(cnt),backgroundColor:Object.keys(cnt).map(k=>color(k)),borderWidth:0}]},options:{responsive:true,cutout:'62%',plugins:{legend:{position:'bottom',labels:{color:c.muted,padding:12}}}}});}
 
 /* ====== KHÁCH HÀNG ====== */
 let kF={q:'',tt:'',pt:'',kv:''}, editingId=null;
 function renderKhach(){
+  const ptFilter=isStaff()?'':`<select class="select" id="kpt" onchange="kF.pt=this.value;drawKhach()"><option value="">Mọi người phụ trách</option>${DB.users.map(u=>`<option>${u.name}</option>`).join('')}</select>`;
   view.innerHTML=`<div class="toolbar">
     <div class="search"><input id="kq" placeholder="Tìm tên / SĐT..." value="${kF.q}" oninput="kF.q=this.value;drawKhach()"></div>
     <select class="select" id="ktt" onchange="kF.tt=this.value;drawKhach()"><option value="">Tất cả trạng thái</option>${DB.statuses.map(s=>`<option>${s}</option>`).join('')}</select>
-    <select class="select" id="kpt" onchange="kF.pt=this.value;drawKhach()"><option value="">Mọi người phụ trách</option>${DB.users.map(u=>`<option>${u.name}</option>`).join('')}</select>
+    ${ptFilter}
     <select class="select" id="kkv" onchange="kF.kv=this.value;drawKhach()"><option value="">Mọi khu vực</option>${DB.regions.map(r=>`<option>${r}</option>`).join('')}</select>
     <button class="btn-ghost" onclick="exportKhach()">⤓ Xuất Excel</button>
     <button class="btn-accent" onclick="openAdd()">+ Thêm khách</button></div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>ID</th><th>Tên</th><th>SĐT</th><th>Sản phẩm</th><th>Thành tiền</th><th>Trạng thái (sửa được)</th><th>Phụ trách</th><th>Hẹn lại</th><th></th></tr></thead><tbody id="kBody"></tbody></table></div>`;
-  document.getElementById('ktt').value=kF.tt;document.getElementById('kpt').value=kF.pt;document.getElementById('kkv').value=kF.kv;drawKhach();
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>ID</th><th>Tên</th><th>SĐT</th><th>Sản phẩm</th><th>Thành tiền</th><th>Trạng thái (sửa được)</th><th>Phụ trách</th><th>Ghi chú</th><th>Hẹn lại</th><th></th></tr></thead><tbody id="kBody"></tbody></table></div>`;
+  document.getElementById('ktt').value=kF.tt;if(document.getElementById('kpt'))document.getElementById('kpt').value=kF.pt;document.getElementById('kkv').value=kF.kv;drawKhach();
 }
 function drawKhach(){
   const q=kF.q.toLowerCase();
-  const rows=DB.customers.filter(c=>(!kF.tt||c.tt===kF.tt)&&(!kF.pt||c.phuTrach===kF.pt)&&(!kF.kv||c.khuVuc===kF.kv)&&(!q||[c.ten,c.sdt].join(' ').toLowerCase().includes(q)));
+  const rows=visibleCustomers().filter(c=>(!kF.tt||c.tt===kF.tt)&&(!kF.pt||c.phuTrach===kF.pt)&&(!kF.kv||c.khuVuc===kF.kv)&&(!q||[c.ten,c.sdt].join(' ').toLowerCase().includes(q)));
   kBody.innerHTML=rows.length?rows.map(c=>`<tr>
     <td>${c.id}</td><td class="name" style="cursor:pointer;color:var(--primary)" onclick="openDetail(${c.id})">${c.ten}</td><td>${c.sdt}</td><td>${c.sanPham||''}</td>
     <td>${c.doanhThu?fmt(c.doanhThu)+' đ':'—'}</td>
     <td><select class="select" style="padding:5px 8px;font-size:12px;border-left:4px solid ${color(c.tt)}" onchange="quickStatus(${c.id},this.value)">${DB.statuses.map(s=>`<option ${s===c.tt?'selected':''}>${s}</option>`).join('')}</select></td>
-    <td>${c.phuTrach||''}</td><td>${c.follow||'—'}</td>
-    <td style="white-space:nowrap"><button class="btn-ghost" style="padding:6px 9px;font-size:12px" onclick="openEdit(${c.id})">✎</button> <button class="btn-ghost" style="padding:6px 9px;font-size:12px" onclick="deleteKhach(${c.id})">🗑</button></td></tr>`).join(''):'<tr><td colspan=9 class=empty>Không có khách hàng.</td></tr>';
+    <td>${c.phuTrach||''}</td>
+    <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(c.ghiChu||'').replace(/"/g,'&quot;')}">${(c.ghiChu||'').replace(/\n/g,' · ')||'—'}</td>
+    <td>${c.follow||'—'}</td>
+    <td style="white-space:nowrap"><button class="btn-ghost" style="padding:6px 9px;font-size:12px" onclick="openEdit(${c.id})">✎</button> <button class="btn-ghost" style="padding:6px 9px;font-size:12px" onclick="deleteKhach(${c.id})">🗑</button></td></tr>`).join(''):'<tr><td colspan=10 class=empty>Không có khách hàng.</td></tr>';
 }
 function calcThanh(){const v=(Number(k_dientich.value)||0)*(Number(k_dongia.value)||0);k_thanh.value=v?Math.round(v):'';}
 function onProduct(){const p=DB.products.find(x=>x.ten===k_sp.value);if(p&&p.gia)k_dongia.value=p.gia;calcThanh();}
-function openAdd(){editingId=null;document.querySelector('#ovKhach .modal-h h3').textContent='Thêm khách hàng';clearK();k_tt.value=DB.statuses[0]||'';openModal('ovKhach');}
+function lockPhuTrach(){ if(isStaff()){k_pt.value=CURRENT.name;k_pt.disabled=true;} else {k_pt.disabled=false;} }
+function openAdd(){editingId=null;document.querySelector('#ovKhach .modal-h h3').textContent='Thêm khách hàng';clearK();k_tt.value=DB.statuses[0]||'';lockPhuTrach();openModal('ovKhach');}
 function openEdit(id){
-  const c=DB.customers.find(x=>x.id==id);if(!c)return;editingId=id;
+  const c=DB.customers.find(x=>x.id==id);if(!c)return;
+  if(isStaff()&&c.phuTrach!==CURRENT.name){toast('Bạn không có quyền sửa khách này');return;}
+  editingId=id;
   document.querySelector('#ovKhach .modal-h h3').textContent='Sửa khách hàng #'+id;
   k_ten.value=c.ten;k_sdt.value=c.sdt;k_sp.value=c.sanPham||'';k_dientich.value=c.dienTich||'';k_dongia.value=c.donGia||'';
   k_tt.value=c.tt;k_pt.value=c.phuTrach||'';k_nguon.value=c.nguon||'';k_kv.value=c.khuVuc||'';k_diachi.value=c.diaChi||'';k_ghichu.value=c.ghiChu||'';
-  calcThanh();closeModal('ovDetail');openModal('ovKhach');
+  lockPhuTrach();calcThanh();closeModal('ovDetail');openModal('ovKhach');
 }
 function openDetail(id){
   const c=DB.customers.find(x=>x.id==id);if(!c)return;
+  if(isStaff()&&c.phuTrach!==CURRENT.name){toast('Bạn không có quyền xem khách này');return;}
   d_title.textContent='Khách hàng #'+id+' — '+c.ten;
   const cares=DB.care.filter(x=>x.khId==id).sort((a,b)=>String(b.ngay).localeCompare(String(a.ngay)));
   const info=(l,v)=>`<div style="margin-bottom:8px"><span style="color:var(--muted);font-size:12px">${l}</span><br><b>${v||'—'}</b></div>`;
@@ -436,7 +452,7 @@ async function deleteKhach(id){
 }
 function exportKhach(){
   const q=kF.q.toLowerCase();
-  const rows=DB.customers.filter(c=>(!kF.tt||c.tt===kF.tt)&&(!kF.pt||c.phuTrach===kF.pt)&&(!kF.kv||c.khuVuc===kF.kv)&&(!q||[c.ten,c.sdt].join(' ').toLowerCase().includes(q)));
+  const rows=visibleCustomers().filter(c=>(!kF.tt||c.tt===kF.tt)&&(!kF.pt||c.phuTrach===kF.pt)&&(!kF.kv||c.khuVuc===kF.kv)&&(!q||[c.ten,c.sdt].join(' ').toLowerCase().includes(q)));
   if(!rows.length){toast('Không có dữ liệu để xuất');return;}
   const cols=[['ID','id'],['Ngày tạo','ngay'],['Tên','ten'],['SĐT','sdt'],['Sản phẩm','sanPham'],['Diện tích','dienTich'],['Đơn giá','donGia'],['Thành tiền','doanhThu'],['Trạng thái','tt'],['Phụ trách','phuTrach'],['Nguồn','nguon'],['Khu vực','khuVuc'],['Hẹn lại','follow'],['Ghi chú','ghiChu']];
   const csv=[cols.map(c=>c[0]).join(',')].concat(rows.map(r=>cols.map(c=>{const v=String(r[c[1]]??'').replace(/"/g,'""');return /[",\n]/.test(v)?`"${v}"`:v;}).join(','))).join('\n');
@@ -447,9 +463,10 @@ async function saveKhach(){
   const ten=k_ten.value.trim(),sdt=k_sdt.value.trim();
   if(!ten||!sdt){toast('Nhập tên và SĐT');return;}
   const dt=Number(k_dientich.value)||0,dg=Number(k_dongia.value)||0,thanh=Math.round(dt*dg);
-  const payload={'Tên khách hàng':ten,'Số điện thoại':sdt,'Sản phẩm':k_sp.value,'Diện tích':dt,'Đơn giá':dg,'Thành tiền':thanh,'Ghi chú':k_ghichu.value,'Địa chỉ':k_diachi.value,'Trạng thái':k_tt.value,'Người phụ trách':k_pt.value,'Nguồn khách':k_nguon.value,'Khu vực':k_kv.value};
+  const phuTrach=isStaff()?CURRENT.name:k_pt.value;
+  const payload={'Tên khách hàng':ten,'Số điện thoại':sdt,'Sản phẩm':k_sp.value,'Diện tích':dt,'Đơn giá':dg,'Thành tiền':thanh,'Ghi chú':k_ghichu.value,'Địa chỉ':k_diachi.value,'Trạng thái':k_tt.value,'Người phụ trách':phuTrach,'Nguồn khách':k_nguon.value,'Khu vực':k_kv.value};
   if(!API_URL){
-    const obj={ten,sdt,sanPham:k_sp.value,dienTich:dt,donGia:dg,doanhThu:thanh,ghiChu:k_ghichu.value,diaChi:k_diachi.value,tt:k_tt.value,phuTrach:k_pt.value,nguon:k_nguon.value,khuVuc:k_kv.value};
+    const obj={ten,sdt,sanPham:k_sp.value,dienTich:dt,donGia:dg,doanhThu:thanh,ghiChu:k_ghichu.value,diaChi:k_diachi.value,tt:k_tt.value,phuTrach,nguon:k_nguon.value,khuVuc:k_kv.value};
     if(editingId){Object.assign(DB.customers.find(x=>x.id==editingId),obj);} else {DB.customers.unshift(Object.assign({id:Date.now(),ngay:todayStr(),follow:''},obj));}
     closeModal('ovKhach');toast('Đã lưu (tạm — chưa nối Apps Script)');drawKhach();return;
   }
@@ -466,17 +483,18 @@ function clearK(){['k_ten','k_sdt','k_diachi','k_ghichu','k_dientich','k_dongia'
 /* ====== CHĂM SÓC ====== */
 let csF={q:'',kh:''}, careEditingId=null;
 function renderChamSoc(){
-  cs_kh.innerHTML=DB.customers.map(c=>`<option value="${c.id}">${c.ten} — ${c.sdt}</option>`).join('');
+  const mine=visibleCustomers();
+  cs_kh.innerHTML=mine.map(c=>`<option value="${c.id}">${c.ten} — ${c.sdt}</option>`).join('');
   view.innerHTML=`<div class="toolbar">
     <div class="search"><input id="csq" placeholder="Tìm nội dung / kết quả..." value="${csF.q}" oninput="csF.q=this.value;drawCare()"></div>
-    <select class="select" id="csfkh" onchange="csF.kh=this.value;drawCare()"><option value="">Mọi khách hàng</option>${DB.customers.map(c=>`<option value="${c.id}">${c.ten}</option>`).join('')}</select>
+    <select class="select" id="csfkh" onchange="csF.kh=this.value;drawCare()"><option value="">Mọi khách hàng</option>${mine.map(c=>`<option value="${c.id}">${c.ten}</option>`).join('')}</select>
     <button class="btn-accent" onclick="openCareAdd()">+ Ghi lịch sử chăm sóc</button></div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Ngày</th><th>Khách hàng</th><th>Kênh</th><th>Nội dung</th><th>Kết quả</th><th>Hẹn lại</th><th>Nhân viên</th><th></th></tr></thead><tbody id="csBody"></tbody></table></div>`;
   document.getElementById('csfkh').value=csF.kh;drawCare();
 }
 function drawCare(){
   const q=csF.q.toLowerCase();
-  const rows=DB.care.filter(x=>(!csF.kh||x.khId==csF.kh)&&(!q||[x.nd,x.kq].join(' ').toLowerCase().includes(q))).slice().reverse();
+  const rows=visibleCare().filter(x=>(!csF.kh||x.khId==csF.kh)&&(!q||[x.nd,x.kq].join(' ').toLowerCase().includes(q))).slice().reverse();
   csBody.innerHTML=rows.length?rows.map(x=>{const kh=DB.customers.find(c=>c.id==x.khId)||{};return `<tr><td>${x.ngay}</td><td class="name">${kh.ten||'?'}</td><td>${x.kenh}</td><td>${x.nd}</td><td>${x.kq}</td><td>${x.follow||'—'}</td><td>${x.nv||''}</td><td style="white-space:nowrap"><button class="btn-ghost" style="padding:5px 9px;font-size:12px" onclick="openCareEdit(${x.id})">✎</button> <button class="btn-ghost" style="padding:5px 9px;font-size:12px" onclick="deleteCare(${x.id})">🗑</button></td></tr>`;}).join(''):'<tr><td colspan=8 class=empty>Chưa có lịch sử chăm sóc.</td></tr>';
 }
 function openCareAdd(khId){careEditingId=null;document.querySelector('#ovCare .modal-h h3').textContent='Ghi lịch sử chăm sóc';clearCs();cs_ngay.value=todayStr();if(khId)cs_kh.value=khId;openModal('ovCare');}
@@ -506,9 +524,9 @@ function clearCs(){['cs_nd','cs_kq','cs_follow'].forEach(id=>document.getElement
 
 /* ====== PIPELINE (theo trạng thái) ====== */
 function renderPipeline(){
-  const cnt={};STAGES.forEach(s=>cnt[s]=0);DB.customers.forEach(c=>{if(cnt[c.tt]!=null)cnt[c.tt]++;});
+  const cnt={};STAGES.forEach(s=>cnt[s]=0);visibleCustomers().forEach(c=>{if(cnt[c.tt]!=null)cnt[c.tt]++;});
   const max=Math.max(1,...Object.values(cnt));
-  const lost=DB.customers.filter(c=>c.tt==='Không quan tâm').length;
+  const lost=visibleCustomers().filter(c=>c.tt==='Không quan tâm').length;
   view.innerHTML=`<div class="card"><div class="card-head"><h3>Phễu bán hàng — số khách theo trạng thái</h3></div>
     <div class="funnel">${STAGES.map(s=>`<div class="stage"><div class="lbl">${s}</div><div class="meter"><div class="fill" style="width:${Math.max(12,cnt[s]/max*100)}%;background:${color(s)}">${cnt[s]} khách</div></div></div>`).join('')}</div>
     <p style="color:var(--muted);margin-top:14px;font-size:13px">Không quan tâm: <b>${lost}</b> khách</p></div>`;
@@ -528,11 +546,43 @@ function renderThuChi(){
 /* ====== CÀI ĐẶT (người dùng) ====== */
 function renderCaiDat(){
   const addBtn=CURRENT.role==='Admin'?`<button class="btn-accent" onclick="openModal('ovUser')">+ Thêm người dùng</button>`:'';
+  const chips=arr=>arr.map(x=>`<span style="display:inline-block;padding:4px 10px;border:1px solid var(--line);border-radius:999px;margin:3px;font-size:12px">${x}</span>`).join('')||'<span class="muted" style="color:var(--muted);font-size:12px">—</span>';
   view.innerHTML=`<div class="card"><div class="card-head"><h3>Người dùng &amp; phân quyền (tab Nhân viên)</h3>${addBtn}</div>
     <div class="tbl-wrap" style="box-shadow:none;border:none"><table class="tbl"><thead><tr><th>Tên nhân viên</th><th>Tài khoản</th><th>Vị trí</th><th>Phòng ban</th></tr></thead><tbody>
     ${DB.users.map(u=>`<tr><td class="name">${u.name}</td><td>${u.user}</td><td>${tagRole(u.vitri)}</td><td>${u.phongBan||''}</td></tr>`).join('')}
     </tbody></table></div>
-    <p style="color:var(--muted);margin-top:14px;font-size:13px">Admin: toàn quyền · Trưởng phòng: quản lý + doanh thu · Nhân viên: nhập khách &amp; chăm sóc.</p></div>`;
+    <p style="color:var(--muted);margin-top:14px;font-size:13px">Admin: toàn quyền · Trưởng phòng: quản lý + doanh thu · Nhân viên: chỉ thấy khách mình phụ trách.</p></div>
+
+    <div class="card" style="margin-top:16px"><div class="card-head"><h3>Danh mục (đồng bộ 2 chiều với CRM Sheet)</h3></div>
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div><b style="font-size:13px">Trạng thái</b><div style="margin:6px 0">${chips(DB.statuses)}</div>
+          <div class="toolbar" style="margin:0"><input class="select" id="cat_tt_ten" placeholder="Tên trạng thái" style="flex:1;min-width:160px"><input class="select" id="cat_tt_mau" placeholder="#3B82F6" style="width:120px"><button class="btn-accent" onclick="addCategory('trangthai')">Thêm</button></div></div>
+        <div><b style="font-size:13px">Nguồn khách</b><div style="margin:6px 0">${chips(DB.sources)}</div>
+          <div class="toolbar" style="margin:0"><input class="select" id="cat_ng_ten" placeholder="Tên nguồn khách" style="flex:1;min-width:160px"><button class="btn-accent" onclick="addCategory('nguon')">Thêm</button></div></div>
+        <div><b style="font-size:13px">Khu vực</b><div style="margin:6px 0">${chips(DB.regions)}</div>
+          <div class="toolbar" style="margin:0"><input class="select" id="cat_kv_ten" placeholder="Tên khu vực" style="flex:1;min-width:160px"><button class="btn-accent" onclick="addCategory('khuvuc')">Thêm</button></div></div>
+        <div><b style="font-size:13px">Sản phẩm</b><div style="margin:6px 0">${chips(DB.products.map(p=>p.ten+(p.gia?' ('+fmt(p.gia)+'đ)':'')))}</div>
+          <div class="toolbar" style="margin:0"><input class="select" id="cat_sp_ten" placeholder="Tên sản phẩm" style="flex:1;min-width:160px"><input class="select" id="cat_sp_gia" type="number" placeholder="Đơn giá" style="width:130px"><button class="btn-accent" onclick="addCategory('sanpham')">Thêm</button></div></div>
+      </div>
+      <p style="color:var(--muted);margin-top:12px;font-size:12px">Thêm ở đây ghi thẳng vào CRM Sheet (đồng bộ Web → CRM). Sửa/xóa danh mục thực hiện trực tiếp trên Sheet rồi tải lại (đồng bộ CRM → Web).</p>
+    </div>`;
+}
+async function addCategory(type){
+  if(CURRENT.role!=='Admin'&&CURRENT.role!=='Quản lý'){toast('Không có quyền');return;}
+  let tab,data;
+  if(type==='trangthai'){const n=cat_tt_ten.value.trim(),m=cat_tt_mau.value.trim()||'#64748b';if(!n){toast('Nhập tên trạng thái');return;}tab='Trạng thái';data={'Tên trạng thái':n,'Màu sắc':m};}
+  else if(type==='nguon'){const n=cat_ng_ten.value.trim();if(!n){toast('Nhập tên nguồn');return;}tab='Nguồn khách';data={'Tên nguồn khách':n};}
+  else if(type==='khuvuc'){const n=cat_kv_ten.value.trim();if(!n){toast('Nhập tên khu vực');return;}tab='Khu vực';data={'Tên khu vực':n};}
+  else if(type==='sanpham'){const n=cat_sp_ten.value.trim(),g=Number(cat_sp_gia.value)||0;if(!n){toast('Nhập tên sản phẩm');return;}tab='SanPham';data={'Tên sản phẩm':n,'Đơn giá':g};}
+  if(!API_URL){
+    if(type==='trangthai'){DB.statuses.push(data['Tên trạng thái']);DB.statusColors[data['Tên trạng thái']]=data['Màu sắc'];}
+    else if(type==='nguon')DB.sources.push(data['Tên nguồn khách']);
+    else if(type==='khuvuc')DB.regions.push(data['Tên khu vực']);
+    else if(type==='sanpham')DB.products.push({ten:data['Tên sản phẩm'],gia:data['Đơn giá']});
+    toast('Đã thêm (tạm — chưa nối Apps Script)');fillSelects();renderCaiDat();return;
+  }
+  try{const res=await apiPost({action:'addList',tab,data});if(!res.ok)throw new Error(res.error||'Thêm thất bại');toast('Đã thêm vào '+tab);await reloadData();fillSelects();go('caidat');}
+  catch(e){toast('Lỗi: '+e.message);}
 }
 function tagRole(v){const c={'Admin':'#5b5bd6','Trưởng phòng':'#0ea5e9','Nhân viên':'#64748b'}[v]||'#64748b';return `<span class="tag" style="background:${c}">${v}</span>`;}
 async function saveUser(){
