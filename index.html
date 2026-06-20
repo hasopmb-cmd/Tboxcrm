@@ -341,15 +341,12 @@ function buildNav(){
   nav.innerHTML=items.map(n=>`<button class="nav-item" data-id="${n.id}" onclick="go('${n.id}')" title="${n.label}"><span class="ico">${n.ico}</span> <span class="lbl">${n.label}</span></button>`).join('');
   dock.innerHTML=items.slice(0,5).map(n=>`<button data-id="${n.id}" onclick="go('${n.id}')"><span class="ico">${n.ico}</span>${n.label}</button>`).join('');
 }
-/* Ẩn/hiện sidebar: đầy đủ → chỉ icon → ẩn hẳn → đầy đủ */
-let sideState=0;
+/* Ẩn/hiện sidebar: bấm 1 lần thu gọn chỉ còn icon, bấm lần nữa hiện lại đầy đủ */
 function toggleSidebar(){
-  sideState=(sideState+1)%3;
   const app=document.getElementById('app');
-  app.classList.toggle('mini',sideState===1);
-  app.classList.toggle('hide-side',sideState===2);
+  const mini=app.classList.toggle('mini');
   const b=document.getElementById('sideBtn');
-  if(b)b.title=['Thu gọn menu (chỉ icon)','Ẩn menu hoàn toàn','Hiện menu đầy đủ'][sideState];
+  if(b)b.title=mini?'Hiện menu đầy đủ':'Thu gọn menu (chỉ icon)';
 }
 function go(id){
   PAGE=id;
