@@ -383,6 +383,7 @@ function renderDashboard(){
       ${kpi('Doanh thu đã chốt','💰',fmt(Math.round(dt/1e6))+' tr','#10b981')}
       ${kpi('Tỉ lệ chốt','🎯',tyle+'%','#ff7a59')}
     </div>
+    ${statusStrip()}
     <div class="grid2">
       <div class="card"><div class="card-head"><h3>Doanh thu: kế hoạch vs thực tế</h3></div><canvas id="chRev" height="150"></canvas></div>
       <div class="card"><div class="card-head"><h3>Khách theo trạng thái</h3></div><canvas id="chStatus" height="150"></canvas></div>
@@ -400,6 +401,18 @@ function renderDashboard(){
   drawRev('chRev');drawStatus('chStatus');
 }
 function kpi(lbl,ico,val,color){return `<div class="kpi"><div class="bar" style="background:${color}"></div><div class="lbl">${ico} ${lbl}</div><div class="val">${val}</div></div>`;}
+/* Hàng tổng hợp: số khách theo từng trạng thái (theo danh mục mới). */
+function statusStrip(){
+  const stages=(DB.statuses&&DB.statuses.length)?DB.statuses:Object.keys(STATUS_DEF);
+  const C=visibleCustomers();
+  const cnt={};stages.forEach(s=>cnt[s]=0);let other=0;
+  C.forEach(x=>{if(cnt[x.tt]!=null)cnt[x.tt]++;else other++;});
+  const box=(name,n,col)=>`<div style="display:flex;align-items:center;gap:9px;padding:10px 13px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2)"><span style="width:12px;height:12px;border-radius:3px;background:${col};display:inline-block;flex-shrink:0"></span><span style="font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</span><b style="font-size:17px;margin-left:auto">${n}</b></div>`;
+  const items=stages.map(s=>box(s,cnt[s],color(s)));
+  if(other>0)items.push(box('Khác',other,'#94a3b8'));
+  return `<div class="card" style="margin-bottom:22px"><div class="card-head"><h3>Tổng hợp theo trạng thái</h3></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px">${items.join('')}</div></div>`;
+}
 function futureStr(days){const d=new Date();d.setDate(d.getDate()+days);return [d.getDate(),d.getMonth()+1,d.getFullYear()].map(x=>String(x).padStart(2,'0')).join('/');}
 function ask(q){
   if(!q)return;if(typeof askBox!=='undefined')askBox.value='';q=q.toLowerCase();const C=visibleCustomers();let a='';
@@ -412,7 +425,16 @@ function ask(q){
 function cc(){const s=getComputedStyle(document.body);return{line:s.getPropertyValue('--line'),muted:s.getPropertyValue('--muted')};}
 function destroy(id){if(charts[id]){charts[id].destroy();delete charts[id];}}
 function drawRev(id){if(typeof Chart==='undefined')return;destroy(id);const c=cc();charts[id]=new Chart(document.getElementById(id),{type:'bar',data:{labels:DB.revenue.map(r=>r.thang),datasets:[{label:'Kế hoạch',data:DB.revenue.map(r=>r.kh),backgroundColor:'#c7c7f5',borderRadius:6},{label:'Thực tế',data:DB.revenue.map(r=>r.tt),backgroundColor:'#5b5bd6',borderRadius:6}]},options:{responsive:true,plugins:{legend:{labels:{color:c.muted}}},scales:{x:{ticks:{color:c.muted},grid:{display:false}},y:{ticks:{color:c.muted},grid:{color:c.line}}}}});}
-function drawStatus(id){if(typeof Chart==='undefined')return;destroy(id);const c=cc();const cnt={};visibleCustomers().forEach(x=>cnt[x.tt]=(cnt[x.tt]||0)+1);charts[id]=new Chart(document.getElementById(id),{type:'doughnut',data:{labels:Object.keys(cnt),datasets:[{data:Object.values(cnt),backgroundColor:Object.keys(cnt).map(k=>color(k)),borderWidth:0}]},options:{responsive:true,cutout:'62%',plugins:{legend:{position:'bottom',labels:{color:c.muted,padding:12}}}}});}
+function drawStatus(id){
+  if(typeof Chart==='undefined')return;destroy(id);const c=cc();
+  const stages=(DB.statuses&&DB.statuses.length)?DB.statuses:Object.keys(STATUS_DEF);
+  const cnt={};stages.forEach(s=>cnt[s]=0);let other=0;
+  visibleCustomers().forEach(x=>{if(cnt[x.tt]!=null)cnt[x.tt]++;else other++;});
+  const labels=[],data=[],colors=[];
+  stages.forEach(s=>{if(cnt[s]>0){labels.push(s);data.push(cnt[s]);colors.push(color(s));}});
+  if(other>0){labels.push('Khác');data.push(other);colors.push('#94a3b8');}
+  charts[id]=new Chart(document.getElementById(id),{type:'doughnut',data:{labels,datasets:[{data,backgroundColor:colors,borderWidth:0}]},options:{responsive:true,cutout:'62%',plugins:{legend:{position:'bottom',labels:{color:c.muted,padding:12}}}}});
+}
 
 /* ====== KHÁCH HÀNG ====== */
 let kF={q:'',tt:'',pt:'',kv:'',from:'',to:'',sortOrder:'',pageSize:20,page:1}, editingId=null;
