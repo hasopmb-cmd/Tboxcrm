@@ -32,8 +32,18 @@ h1,h2,h3{font-family:var(--display)}.hidden{display:none!important}
 .cfg-link{font-size:12px;color:var(--primary);cursor:pointer;font-weight:600;background:none;padding:0}
 .demo-accounts{margin-top:18px;font-size:12.5px;color:var(--muted);background:var(--surface-2);border:1px dashed var(--line);border-radius:12px;padding:12px 14px;line-height:1.9}.demo-accounts b{color:var(--ink)}
 .login-err{color:#ef4444;font-size:13px;min-height:18px;margin-top:6px}
-#app{display:grid;grid-template-columns:248px 1fr;min-height:100%}
-aside{background:var(--surface);border-right:1px solid var(--line);padding:20px 16px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:6px}
+#app{display:grid;grid-template-columns:248px 1fr;min-height:100%;transition:grid-template-columns .2s ease}
+aside{background:var(--surface);border-right:1px solid var(--line);padding:20px 16px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:6px;overflow:hidden}
+/* Sidebar: chế độ chỉ icon */
+#app.mini{grid-template-columns:74px 1fr}
+#app.mini aside{padding:20px 10px}
+#app.mini .logo-row{justify-content:center;padding:6px 0 18px}
+#app.mini .nav-item{justify-content:center;padding:11px 0;gap:0}
+#app.mini .side-foot{justify-content:center}
+#app.mini .lbl,#app.mini .side-foot .meta{display:none}
+/* Sidebar: ẩn hoàn toàn */
+#app.hide-side{grid-template-columns:0 1fr}
+#app.hide-side aside{display:none}
 .logo-row{display:flex;align-items:center;gap:10px;padding:6px 8px 18px;font-family:var(--display);font-weight:700;font-size:18px}
 .logo-dot{width:30px;height:30px;border-radius:9px;background:var(--primary);color:#fff;display:grid;place-items:center;font-size:15px}
 .nav-item{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:12px;color:var(--muted);font-weight:600;background:transparent;width:100%;text-align:left;font-size:14px}
@@ -41,7 +51,9 @@ aside{background:var(--surface);border-right:1px solid var(--line);padding:20px 
 .nav-spacer{flex:1}.side-foot{border-top:1px solid var(--line);padding-top:12px;display:flex;align-items:center;gap:10px}
 .avatar{width:36px;height:36px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:700}
 .side-foot .meta{line-height:1.2}.side-foot .meta b{font-size:13px}.side-foot .meta span{font-size:11.5px;color:var(--muted)}
-main{padding:24px 28px 96px;max-width:1280px;width:100%}
+main{padding:24px 28px 96px;max-width:1600px;width:100%}
+main.wide{max-width:none}
+main.wide #kWrap .tbl th,main.wide #kWrap .tbl td{padding:10px 10px}
 .topbar{display:flex;align-items:center;gap:14px;margin-bottom:22px}.topbar h1{font-size:22px;margin:0}.topbar .grow{flex:1}
 .icon-btn{width:40px;height:40px;border-radius:12px;background:var(--surface);border:1px solid var(--line);display:grid;place-items:center;font-size:17px;color:var(--ink)}.icon-btn:hover{background:var(--surface-2)}
 .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:22px}
@@ -96,12 +108,12 @@ canvas{max-width:100%}
 
 <div id="app" class="hidden">
   <aside>
-    <div class="logo-row"><span class="logo-dot">◆</span> TBOX CRM SALE</div>
+    <div class="logo-row"><span class="logo-dot">◆</span> <span class="lbl">TBOX CRM SALE</span></div>
     <nav id="nav"></nav><div class="nav-spacer"></div>
     <div class="side-foot"><div class="avatar" id="sf_av">A</div><div class="meta"><b id="sf_name">—</b><br><span id="sf_role">—</span></div></div>
   </aside>
   <main>
-    <div class="topbar"><h1 id="pageTitle">Tổng quan</h1><div class="grow"></div>
+    <div class="topbar"><button class="icon-btn" id="sideBtn" title="Thu gọn menu" onclick="toggleSidebar()">☰</button><h1 id="pageTitle">Tổng quan</h1><div class="grow"></div>
       <button class="icon-btn" title="Tải lại dữ liệu" onclick="reloadData()" id="reloadBtn">⟳</button>
       <button class="icon-btn" title="Đổi giao diện" onclick="toggleTheme()" id="themeBtn">🌙</button>
       <button class="icon-btn" title="Đăng xuất" onclick="logout()">⎋</button></div>
@@ -326,13 +338,24 @@ function fillSelects(){
 /* ====== NAV ====== */
 function buildNav(){
   const items=NAV.filter(n=>n.roles.includes(CURRENT.role));
-  nav.innerHTML=items.map(n=>`<button class="nav-item" data-id="${n.id}" onclick="go('${n.id}')"><span class="ico">${n.ico}</span> ${n.label}</button>`).join('');
+  nav.innerHTML=items.map(n=>`<button class="nav-item" data-id="${n.id}" onclick="go('${n.id}')" title="${n.label}"><span class="ico">${n.ico}</span> <span class="lbl">${n.label}</span></button>`).join('');
   dock.innerHTML=items.slice(0,5).map(n=>`<button data-id="${n.id}" onclick="go('${n.id}')"><span class="ico">${n.ico}</span>${n.label}</button>`).join('');
+}
+/* Ẩn/hiện sidebar: đầy đủ → chỉ icon → ẩn hẳn → đầy đủ */
+let sideState=0;
+function toggleSidebar(){
+  sideState=(sideState+1)%3;
+  const app=document.getElementById('app');
+  app.classList.toggle('mini',sideState===1);
+  app.classList.toggle('hide-side',sideState===2);
+  const b=document.getElementById('sideBtn');
+  if(b)b.title=['Thu gọn menu (chỉ icon)','Ẩn menu hoàn toàn','Hiện menu đầy đủ'][sideState];
 }
 function go(id){
   PAGE=id;
   document.querySelectorAll('.nav-item').forEach(b=>b.classList.toggle('active',b.dataset.id===id));
   document.querySelectorAll('.dock button').forEach(b=>b.classList.toggle('active',b.dataset.id===id));
+  const m=document.querySelector('main');if(m)m.classList.toggle('wide',id==='khach');
   pageTitle.textContent={dashboard:'Tổng quan',khach:'Khách hàng',chamsoc:'Chăm sóc khách hàng',pipeline:'Phễu bán hàng',thuchi:'Doanh thu',caidat:'Cài đặt'}[id]||'';
   ({dashboard:renderDashboard,khach:renderKhach,chamsoc:renderChamSoc,pipeline:renderPipeline,thuchi:renderThuChi,caidat:renderCaiDat}[id])();
 }
