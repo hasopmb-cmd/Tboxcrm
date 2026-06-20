@@ -257,6 +257,8 @@ function ddmmToISO(s){if(!s)return'';const m=String(s).split('/');return m.lengt
 function isoToDdmm(s){if(!s)return'';const m=String(s).split('-');return m.length===3?`${m[2]}/${m[1]}/${m[0]}`:String(s);}
 /* YYYY-MM-DD của hôm nay + n ngày (mặc định cho ô Hẹn gọi lại). */
 function isoPlus(n){const d=new Date();d.setDate(d.getDate()+n);return d.toISOString().slice(0,10);}
+/* YYYY-MM-DD = (ngày nhập liệu DD/MM/YYYY) + n ngày; nếu ngày không hợp lệ thì lấy hôm nay + n. */
+function isoPlusFrom(ddmm,n){const iso=ddmmToISO(ddmm);let d;if(/^\d{4}-\d{2}-\d{2}$/.test(iso)){const p=iso.split('-');d=new Date(+p[0],+p[1]-1,+p[2]);}else{d=new Date();}d.setDate(d.getDate()+n);return d.toISOString().slice(0,10);}
 
 /* ====== ĐỌC SHEETS (GViz + JSONP, không lỗi CORS, timeout 25s) ====== */
 function gviz(tab){return new Promise((resolve,reject)=>{
@@ -490,9 +492,11 @@ function renderKhach(){
         <button class="btn-ghost" style="padding:7px 12px" onclick="scrollKhachH(-400)" title="Cuộn sang trái">◀</button>
         <button class="btn-ghost" style="padding:7px 12px" onclick="scrollKhachH(400)" title="Cuộn sang phải">▶</button>
         <span style="width:1px;height:20px;background:var(--line);display:inline-block"></span>
+        <button class="btn-ghost" id="kFirst" style="padding:7px 12px" onclick="khachFirst()" title="Về trang đầu">«</button>
         <button class="btn-ghost" id="kPrev" style="padding:7px 12px" onclick="khachPage(-1)">‹</button>
         <span id="kPagerInfo" style="font-size:13px;color:var(--muted);min-width:140px;text-align:center"></span>
         <button class="btn-ghost" id="kNext" style="padding:7px 12px" onclick="khachPage(1)">›</button>
+        <button class="btn-ghost" id="kLast" style="padding:7px 12px" onclick="khachLast()" title="Về trang cuối">»</button>
       </div>
     </div>
     <div class="tbl-wrap" id="kWrap"><table class="tbl"><thead><tr><th style="width:34px"><input type="checkbox" id="kCheckAll" onclick="toggleAllKhach(this)"></th><th>ID</th><th>Tên</th><th>SĐT</th><th>Khu vực</th><th>Sản phẩm</th><th>Diện tích</th><th>Trạng thái (sửa được)</th><th>Phụ trách</th><th>Gọi lần 1</th><th>Gọi lần 2</th><th>Ghi chú</th><th>Kết quả</th><th>Hẹn gọi lại</th><th></th></tr></thead><tbody id="kBody"></tbody></table></div>`;
@@ -501,6 +505,8 @@ function renderKhach(){
 function setKhachSize(v){kF.pageSize=(v==='all'?'all':+v);kF.page=1;const ci=document.getElementById('kpsCustom');if(ci)ci.value='';drawKhach();}
 function setKhachSizeCustom(v){const n=parseInt(v,10);if(n>0){kF.pageSize=n;kF.page=1;const sel=document.getElementById('kps');if(sel)sel.value=[20,30,40,50].includes(n)?String(n):'';drawKhach();}}
 function khachPage(d){kF.page+=d;drawKhach();}
+function khachFirst(){kF.page=1;drawKhach();}
+function khachLast(){kF.page=Number.MAX_SAFE_INTEGER;drawKhach();}
 function sortKhachToggle(){kF.sortOrder=kF.sortOrder===''?'desc':(kF.sortOrder==='desc'?'asc':'');kF.page=1;drawKhach();}
 function scrollKhachH(dx){const w=document.getElementById('kWrap');if(w)w.scrollBy({left:dx,behavior:'smooth'});}
 function drawKhach(){
@@ -530,8 +536,9 @@ function drawKhach(){
     <td style="white-space:nowrap"><button class="btn-ghost" style="padding:6px 9px;font-size:12px" onclick="openEdit(${c.id})">✎</button> <button class="btn-ghost" style="padding:6px 9px;font-size:12px" onclick="deleteKhach(${c.id})">🗑</button></td></tr>`).join(''):'<tr><td colspan=15 class=empty>Không có khách hàng.</td></tr>';
   const info=document.getElementById('kPagerInfo');
   if(info){const a=total?start+1:0,b=kF.pageSize==='all'?total:Math.min(start+size,total);info.textContent=`${a}–${b} / ${total} · Trang ${kF.page}/${pages}`;}
-  const prev=document.getElementById('kPrev'),next=document.getElementById('kNext');
+  const prev=document.getElementById('kPrev'),next=document.getElementById('kNext'),first=document.getElementById('kFirst'),last=document.getElementById('kLast');
   if(prev)prev.disabled=kF.page<=1;if(next)next.disabled=kF.page>=pages;
+  if(first)first.disabled=kF.page<=1;if(last)last.disabled=kF.page>=pages;
 }
 function calcThanh(){const v=(Number(k_dientich.value)||0)*(Number(k_dongia.value)||0);k_thanh.value=v?Math.round(v):'';}
 function onProduct(){const p=DB.products.find(x=>x.ten===k_sp.value);if(p&&p.gia)k_dongia.value=p.gia;calcThanh();}
@@ -544,7 +551,7 @@ function openEdit(id){
   document.querySelector('#ovKhach .modal-h h3').textContent='Sửa khách hàng #'+id;
   k_ten.value=c.ten;k_sdt.value=c.sdt;k_sp.value=c.sanPham||'';k_dientich.value=c.dienTich||'';k_dongia.value=c.donGia||'';
   k_tt.value=c.tt;k_pt.value=c.phuTrach||'';k_nguon.value=c.nguon||'';k_kv.value=c.khuVuc||'';k_diachi.value=c.diaChi||'';k_ghichu.value=c.ghiChu||'';
-  k_goi1.value=c.goiLan1||'';k_goi2.value=c.goiLan2||'';k_hengoi.value=ddmmToISO(c.follow);
+  k_goi1.value=c.goiLan1||'';k_goi2.value=c.goiLan2||'';k_hengoi.value=c.follow?ddmmToISO(c.follow):isoPlusFrom(c.ngay,2);
   lockPhuTrach();calcThanh();closeModal('ovDetail');openModal('ovKhach');
 }
 function openDetail(id){
