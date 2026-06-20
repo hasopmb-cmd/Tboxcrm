@@ -415,7 +415,7 @@ function drawRev(id){if(typeof Chart==='undefined')return;destroy(id);const c=cc
 function drawStatus(id){if(typeof Chart==='undefined')return;destroy(id);const c=cc();const cnt={};visibleCustomers().forEach(x=>cnt[x.tt]=(cnt[x.tt]||0)+1);charts[id]=new Chart(document.getElementById(id),{type:'doughnut',data:{labels:Object.keys(cnt),datasets:[{data:Object.values(cnt),backgroundColor:Object.keys(cnt).map(k=>color(k)),borderWidth:0}]},options:{responsive:true,cutout:'62%',plugins:{legend:{position:'bottom',labels:{color:c.muted,padding:12}}}}});}
 
 /* ====== KHÁCH HÀNG ====== */
-let kF={q:'',tt:'',pt:'',kv:'',from:'',to:'',sortDate:'',pageSize:20,page:1}, editingId=null;
+let kF={q:'',tt:'',pt:'',kv:'',from:'',to:'',sortOrder:'',pageSize:20,page:1}, editingId=null;
 function renderKhach(){
   const ptFilter=isStaff()?'':`<select class="select" id="kpt" onchange="kF.pt=this.value;kF.page=1;drawKhach()"><option value="">Mọi người phụ trách</option>${DB.users.map(u=>`<option>${u.name}</option>`).join('')}</select>`;
   view.innerHTML=`<div class="toolbar">
@@ -439,7 +439,7 @@ function renderKhach(){
         <input type="number" min="1" class="select" id="kpsCustom" placeholder="Tự nhập" value="${(typeof kF.pageSize==='number'&&![20,30,40,50].includes(kF.pageSize))?kF.pageSize:''}" style="width:110px;padding:8px 10px" oninput="setKhachSizeCustom(this.value)">
         <span style="color:var(--muted);font-size:13px">dòng/trang</span>
         <span style="width:1px;height:20px;background:var(--line);display:inline-block;margin:0 2px"></span>
-        <button class="btn-ghost" id="kSortBtn" style="padding:8px 12px" onclick="sortKhachToggle()" title="Sắp xếp theo ngày nhập liệu">↕ Ngày nhập</button>
+        <button class="btn-ghost" id="kSortBtn" style="padding:8px 12px" onclick="sortKhachToggle()" title="Sắp xếp theo thứ tự nhập liệu">↕ Thứ tự nhập</button>
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <span style="color:var(--muted);font-size:12px">Cuộn ngang:</span>
@@ -457,15 +457,15 @@ function renderKhach(){
 function setKhachSize(v){kF.pageSize=(v==='all'?'all':+v);kF.page=1;const ci=document.getElementById('kpsCustom');if(ci)ci.value='';drawKhach();}
 function setKhachSizeCustom(v){const n=parseInt(v,10);if(n>0){kF.pageSize=n;kF.page=1;const sel=document.getElementById('kps');if(sel)sel.value=[20,30,40,50].includes(n)?String(n):'';drawKhach();}}
 function khachPage(d){kF.page+=d;drawKhach();}
-function sortKhachToggle(){kF.sortDate=kF.sortDate===''?'desc':(kF.sortDate==='desc'?'asc':'');kF.page=1;drawKhach();}
+function sortKhachToggle(){kF.sortOrder=kF.sortOrder===''?'desc':(kF.sortOrder==='desc'?'asc':'');kF.page=1;drawKhach();}
 function scrollKhachH(dx){const w=document.getElementById('kWrap');if(w)w.scrollBy({left:dx,behavior:'smooth'});}
 function drawKhach(){
   const q=kF.q.toLowerCase();
   let rows=visibleCustomers().filter(c=>(!kF.tt||c.tt===kF.tt)&&(!kF.pt||c.phuTrach===kF.pt)&&(!kF.kv||c.khuVuc===kF.kv)&&(!q||[c.ten,c.sdt].join(' ').toLowerCase().includes(q)));
   if(kF.from||kF.to){rows=rows.filter(c=>{const iso=ddmmToISO(c.ngay);if(!iso)return false;if(kF.from&&iso<kF.from)return false;if(kF.to&&iso>kF.to)return false;return true;});}
-  if(kF.sortDate){rows=rows.slice().sort((a,b)=>{const ia=ddmmToISO(a.ngay)||'',ib=ddmmToISO(b.ngay)||'';if(!ia&&!ib)return 0;if(!ia)return 1;if(!ib)return -1;if(ia===ib)return 0;return kF.sortDate==='desc'?(ia<ib?1:-1):(ia<ib?-1:1);});}
+  if(kF.sortOrder){rows=rows.slice().sort((a,b)=>{const ia=Number(a.id)||0,ib=Number(b.id)||0;return kF.sortOrder==='desc'?ib-ia:ia-ib;});}
   const sb=document.getElementById('kSortBtn');
-  if(sb){sb.innerHTML={'':'↕ Ngày nhập','desc':'↓ Mới nhất','asc':'↑ Cũ nhất'}[kF.sortDate];sb.style.color=kF.sortDate?'var(--primary)':'';sb.style.fontWeight=kF.sortDate?'700':'';}
+  if(sb){sb.innerHTML={'':'↕ Thứ tự nhập','desc':'↓ Mới nhập','asc':'↑ Nhập trước'}[kF.sortOrder];sb.style.color=kF.sortOrder?'var(--primary)':'';sb.style.fontWeight=kF.sortOrder?'700':'';}
   const total=rows.length;
   const size=kF.pageSize==='all'?(total||1):kF.pageSize;
   const pages=Math.max(1,Math.ceil(total/size));
