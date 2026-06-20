@@ -385,7 +385,13 @@ function renderDashboard(){
     </div>
     ${statusStrip()}
     <div class="grid2">
-      <div class="card"><div class="card-head"><h3>Doanh thu: kế hoạch vs thực tế</h3></div><canvas id="chRev" height="150"></canvas></div>
+      <div class="card"><div class="card-head"><h3><span style="color:#10b981;font-weight:700">✔</span> Khách hàng đã chốt</h3>
+        <div style="display:flex;align-items:center;gap:6px">
+          <button class="btn-ghost" id="dealPrev" style="padding:5px 10px" onclick="dealGo(-1)">‹</button>
+          <span id="dealInfo" style="font-size:12px;color:var(--muted);min-width:120px;text-align:center"></span>
+          <button class="btn-ghost" id="dealNext" style="padding:5px 10px" onclick="dealGo(1)">›</button>
+        </div></div>
+        <div class="tbl-wrap" style="box-shadow:none;border:none"><table class="tbl"><thead><tr><th>Khách hàng</th><th>Phụ trách</th><th style="text-align:right">Thành tiền</th></tr></thead><tbody id="dealBody"></tbody></table></div></div>
       <div class="card"><div class="card-head"><h3>Khách theo trạng thái</h3></div><canvas id="chStatus" height="150"></canvas></div>
     </div>
     <div class="grid2">
@@ -398,7 +404,7 @@ function renderDashboard(){
         <div class="row"><input id="askBox" placeholder="Hỏi về dữ liệu..." onkeydown="if(event.key==='Enter')ask(this.value)"><button class="btn-accent" onclick="ask(askBox.value)">Hỏi</button></div>
         <div class="ans" id="askAns">Gõ câu hỏi về khách hàng, hệ thống đọc dữ liệu hiển thị và trả lời.</div></div>
     </div>`;
-  drawRev('chRev');drawStatus('chStatus');
+  dealPg=1;drawDeals();drawStatus('chStatus');
 }
 function kpi(lbl,ico,val,color){return `<div class="kpi"><div class="bar" style="background:${color}"></div><div class="lbl">${ico} ${lbl}</div><div class="val">${val}</div></div>`;}
 /* Hàng tổng hợp: số khách theo từng trạng thái (theo danh mục mới). */
@@ -414,6 +420,22 @@ function statusStrip(){
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px">${items.join('')}</div></div>`;
 }
 function futureStr(days){const d=new Date();d.setDate(d.getDate()+days);return [d.getDate(),d.getMonth()+1,d.getFullYear()].map(x=>String(x).padStart(2,'0')).join('/');}
+/* Bảng "Khách hàng đã chốt" trên Tổng quan — phân trang để giữ chiều cao ổn định. */
+let dealPg=1; const DEAL_SIZE=5;
+function dealGo(d){dealPg+=d;drawDeals();}
+function drawDeals(){
+  const C=visibleCustomers().filter(c=>c.tt==='Đã chốt');
+  const total=C.length;
+  const pages=Math.max(1,Math.ceil(total/DEAL_SIZE));
+  if(dealPg>pages)dealPg=pages;if(dealPg<1)dealPg=1;
+  const start=(dealPg-1)*DEAL_SIZE;
+  const rows=C.slice(start,start+DEAL_SIZE);
+  const body=document.getElementById('dealBody');
+  if(body)body.innerHTML=rows.length?rows.map(c=>`<tr><td class="name"><span style="color:#10b981">✔</span> ${c.ten}</td><td>${c.phuTrach||''}</td><td style="text-align:right">${c.doanhThu?fmt(c.doanhThu)+' đ':'—'}</td></tr>`).join(''):'<tr><td colspan=3 class=empty>Chưa có khách đã chốt</td></tr>';
+  const info=document.getElementById('dealInfo');if(info){const a=total?start+1:0,b=Math.min(start+DEAL_SIZE,total);info.textContent=`${a}–${b} / ${total} · Trang ${dealPg}/${pages}`;}
+  const prev=document.getElementById('dealPrev'),next=document.getElementById('dealNext');
+  if(prev)prev.disabled=dealPg<=1;if(next)next.disabled=dealPg>=pages;
+}
 function ask(q){
   if(!q)return;if(typeof askBox!=='undefined')askBox.value='';q=q.toLowerCase();const C=visibleCustomers();let a='';
   if(q.includes('chăm')||q.includes('liên hệ')){const l=C.filter(c=>c.follow&&String(c.follow)>=todayStr()&&String(c.follow)<=futureStr(7));a=l.length?'Cần chăm trong 7 ngày: '+l.map(c=>c.ten+' ('+c.follow+')').join(', '):'Không có lịch hẹn trong 7 ngày.';}
