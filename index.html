@@ -13,6 +13,7 @@
 *{box-sizing:border-box}html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:14px}
 button{font-family:inherit;cursor:pointer;border:none;border-radius:11px}
+button:disabled{opacity:.4;cursor:default}
 input,select,textarea{font-family:inherit;font-size:14px;color:var(--ink)}
 h1,h2,h3{font-family:var(--display)}.hidden{display:none!important}
 #login{position:fixed;inset:0;display:grid;grid-template-columns:1.05fr .95fr;z-index:100}
@@ -125,6 +126,9 @@ canvas{max-width:100%}
     <div><label>Khu vực</label><select class="ctrl" id="k_kv"></select></div>
     <div class="full"><label>Địa chỉ</label><input class="ctrl" id="k_diachi"></div>
     <div class="full"><label>Ghi chú — mỗi dòng một ý</label><textarea class="ctrl" id="k_ghichu" rows="3" placeholder="- Ý 1&#10;- Ý 2&#10;- Ý 3"></textarea></div>
+    <div><label>Gọi lần 1</label><input class="ctrl" id="k_goi1" placeholder="Nội dung / kết quả gọi lần 1"></div>
+    <div><label>Gọi lần 2</label><input class="ctrl" id="k_goi2" placeholder="Nội dung / kết quả gọi lần 2"></div>
+    <div><label>Hẹn gọi lại</label><input class="ctrl" id="k_hengoi" type="date"></div>
   </div></div>
   <div class="modal-f"><button class="btn-ghost" onclick="closeModal('ovKhach')">Hủy</button><button class="btn-accent" onclick="saveKhach()">Lưu khách hàng</button></div>
 </div></div>
@@ -216,11 +220,15 @@ const DEMO={
 attachFollow(DEMO);
 DEMO.products=[{ten:'Hộp tbox',gia:350000},{ten:'Gạch chống nóng Ctbox',gia:180000},{ten:'Tấm tường',gia:250000}];
 DEMO.customers.forEach(c=>{c.sanPham=c.sanPham||'';c.dienTich=c.dienTich||0;c.donGia=c.donGia||0;});
+DEMO.users.forEach((u,i)=>u.id=u.id||i+1);
+DEMO.products.forEach((p,i)=>p.id=p.id||i+1);
+DEMO.statusList=DEMO.statuses.map((t,i)=>({id:i+1,ten:t,mau:DEMO.statusColors[t]||'#64748b'}));
+DEMO.sourceList=DEMO.sources.map((t,i)=>({id:i+1,ten:t}));
+DEMO.regionList=DEMO.regions.map((t,i)=>({id:i+1,ten:t}));
 
 const NAV=[
   {id:'dashboard',label:'Tổng quan',ico:'📊',roles:['Admin','Quản lý','Nhân viên']},
   {id:'khach',label:'Khách hàng',ico:'👥',roles:['Admin','Quản lý','Nhân viên']},
-  {id:'chamsoc',label:'Chăm sóc',ico:'💬',roles:['Admin','Quản lý','Nhân viên']},
   {id:'pipeline',label:'Phễu bán hàng',ico:'🪜',roles:['Admin','Quản lý','Nhân viên']},
   {id:'thuchi',label:'Doanh thu',ico:'💰',roles:['Admin','Quản lý']},
   {id:'caidat',label:'Cài đặt',ico:'⚙️',roles:['Admin','Quản lý']},
@@ -229,7 +237,14 @@ let DB=DEMO, CURRENT=null, PAGE='dashboard', charts={}, READY=false;
 
 function roleOf(v){v=String(v||'').trim();if(v==='Admin')return'Admin';if(v==='Trưởng phòng')return'Quản lý';return'Nhân viên';}
 function uniq(a){return a.filter((x,i)=>a.indexOf(x)===i);}
-function attachFollow(db){db.customers.forEach(c=>{const cs=db.care.filter(x=>x.khId==c.id&&x.follow);if(cs.length){cs.sort((a,b)=>String(b.follow).localeCompare(String(a.follow)));c.follow=cs[0].follow;}});}
+function attachFollow(db){db.customers.forEach(c=>{if(c.follow)return;const cs=db.care.filter(x=>x.khId==c.id&&x.follow);if(cs.length){cs.sort((a,b)=>String(b.follow).localeCompare(String(a.follow)));c.follow=cs[0].follow;}});}
+/* Kết quả gần nhất lấy từ phần Chăm sóc (theo ngày mới nhất). */
+function lastCareResult(id){const cs=DB.care.filter(x=>x.khId==id&&x.kq);if(!cs.length)return'';cs.sort((a,b)=>String(b.ngay).localeCompare(String(a.ngay)));return cs[0].kq;}
+/* Chuyển đổi ngày: DD/MM/YYYY <-> YYYY-MM-DD (cho ô lịch <input type=date>). */
+function ddmmToISO(s){if(!s)return'';const m=String(s).split('/');return m.length===3?`${m[2]}-${String(m[1]).padStart(2,'0')}-${String(m[0]).padStart(2,'0')}`:String(s);}
+function isoToDdmm(s){if(!s)return'';const m=String(s).split('-');return m.length===3?`${m[2]}/${m[1]}/${m[0]}`:String(s);}
+/* YYYY-MM-DD của hôm nay + n ngày (mặc định cho ô Hẹn gọi lại). */
+function isoPlus(n){const d=new Date();d.setDate(d.getDate()+n);return d.toISOString().slice(0,10);}
 
 /* ====== ĐỌC SHEETS (GViz + JSONP, không lỗi CORS, timeout 25s) ====== */
 function gviz(tab){return new Promise((resolve,reject)=>{
@@ -251,19 +266,22 @@ async function loadFromSheets(){
   const gvizSafe=t=>gviz(t).catch(()=>[]);
   const [nv,kh,cs,tt,ng,kv,tc,sp]=await Promise.all([gviz(T.nhanvien),gviz(T.khach),gvizSafe(T.chamsoc),gviz(T.trangthai),gviz(T.nguon),gviz(T.khuvuc),gvizSafe(T.thuchi),gvizSafe(T.sanpham)]);
   const db={
-    users:nv.filter(r=>r['Tên đăng nhập']).map(r=>({user:String(r['Tên đăng nhập']),pass:String(r['Mật khẩu']),name:r['Tên nhân viên']||r['Tên đăng nhập'],vitri:r['Vị trí']||'Nhân viên',role:roleOf(r['Vị trí']),phongBan:r['Phòng Ban']||''})),
-    customers:kh.filter(r=>r['Tên khách hàng']).map((r,i)=>({id:r['ID']||i+1,ngay:r['Ngày tạo']||'',ten:r['Tên khách hàng'],sdt:r['Số điện thoại']||'',sanPham:r['Sản phẩm']||'',dienTich:Number(r['Diện tích'])||0,donGia:Number(r['Đơn giá'])||0,doanhThu:Number(r['Thành tiền'])||0,ghiChu:r['Ghi chú']||'',diaChi:r['Địa chỉ']||'',tt:r['Trạng thái']||'Khách hàng mới',phuTrach:r['Người phụ trách']||'',nguon:r['Nguồn khách']||'',khuVuc:r['Khu vực']||'',follow:''})),
+    users:nv.filter(r=>r['Tên đăng nhập']).map((r,i)=>({id:r['ID']||i+1,user:String(r['Tên đăng nhập']),pass:String(r['Mật khẩu']),name:r['Tên nhân viên']||r['Tên đăng nhập'],vitri:r['Vị trí']||'Nhân viên',role:roleOf(r['Vị trí']),phongBan:r['Phòng Ban']||''})),
+    customers:kh.filter(r=>r['Tên khách hàng']).map((r,i)=>({id:r['ID']||i+1,ngay:r['Ngày tạo']||'',ten:r['Tên khách hàng'],sdt:r['Số điện thoại']||'',sanPham:r['Sản phẩm']||'',dienTich:Number(r['Diện tích'])||0,donGia:Number(r['Đơn giá'])||0,doanhThu:Number(r['Thành tiền'])||0,ghiChu:r['Ghi chú']||'',diaChi:r['Địa chỉ']||'',tt:r['Trạng thái']||'Khách hàng mới',phuTrach:r['Người phụ trách']||'',nguon:r['Nguồn khách']||'',khuVuc:r['Khu vực']||'',goiLan1:r['Gọi lần 1']||'',goiLan2:r['Gọi lần 2']||'',follow:r['Hẹn gọi lại']||''})),
     care:cs.filter(r=>r['Mã khách hàng']).map((r,i)=>({id:r['ID']||i+1,khId:Number(r['Mã khách hàng']),ngay:r['Ngày']||'',kenh:r['Kênh']||'',nd:r['Nội dung']||'',kq:r['Kết quả']||'',follow:r['Hẹn lại']||'',nv:r['Nhân viên']||''})),
     statuses:tt.filter(r=>r['Tên trạng thái']).map(r=>r['Tên trạng thái']),
     statusColors:{},
+    statusList:tt.filter(r=>r['Tên trạng thái']).map((r,i)=>({id:r['ID']||i+1,ten:r['Tên trạng thái'],mau:r['Màu sắc']||'#64748b'})),
     sources:uniq(ng.filter(r=>r['Tên nguồn khách']).map(r=>r['Tên nguồn khách'])),
+    sourceList:ng.filter(r=>r['Tên nguồn khách']).map((r,i)=>({id:r['ID']||i+1,ten:r['Tên nguồn khách']})),
     regions:kv.filter(r=>r['Tên khu vực']).map(r=>r['Tên khu vực']),
-    products:sp.filter(r=>r['Tên sản phẩm']).map(r=>({ten:r['Tên sản phẩm'],gia:Number(r['Đơn giá'])||0})),
+    regionList:kv.filter(r=>r['Tên khu vực']).map((r,i)=>({id:r['ID']||i+1,ten:r['Tên khu vực']})),
+    products:sp.filter(r=>r['Tên sản phẩm']).map((r,i)=>({id:r['ID']||i+1,ten:r['Tên sản phẩm'],gia:Number(r['Đơn giá'])||0})),
     revenue:tc.filter(r=>r['thang']).map(r=>({thang:r['thang'],kh:Number(r['keHoach'])||0,tt:Number(r['thucTe'])||0})),
   };
   tt.forEach(r=>{if(r['Tên trạng thái'])db.statusColors[r['Tên trạng thái']]=r['Màu sắc']||'#64748b';});
-  if(!db.statuses.length) db.statuses=Object.keys(STATUS_DEF);
-  if(!db.products.length) db.products=[{ten:'Hộp tbox',gia:0},{ten:'Gạch chống nóng Ctbox',gia:0},{ten:'Tấm tường',gia:0}];
+  if(!db.statuses.length){db.statuses=Object.keys(STATUS_DEF);db.statusColors=Object.assign({},STATUS_DEF);db.statusList=db.statuses.map((t,i)=>({id:i+1,ten:t,mau:STATUS_DEF[t]||'#64748b'}));}
+  if(!db.products.length) db.products=[{id:1,ten:'Hộp tbox',gia:0},{id:2,ten:'Gạch chống nóng Ctbox',gia:0},{id:3,ten:'Tấm tường',gia:0}];
   attachFollow(db); return db;
 }
 
@@ -275,7 +293,7 @@ async function boot(){
   setSource('demo','Đang tải dữ liệu…');
   try{const t0=Date.now();DB=await loadFromSheets();READY=true;lgBtn.disabled=false;
     setSource('live','Đã kết nối · '+DB.customers.length+' khách');}
-  catch(e){DB={users:[],customers:[],care:[],statuses:Object.keys(STATUS_DEF),statusColors:Object.assign({},STATUS_DEF),sources:[],regions:[],products:[],revenue:[]};READY=true;lgBtn.disabled=false;setSource('err','Không kết nối được dữ liệu — hãy tải lại trang.');}
+  catch(e){DB={users:[],customers:[],care:[],statuses:Object.keys(STATUS_DEF),statusColors:Object.assign({},STATUS_DEF),statusList:[],sources:[],sourceList:[],regions:[],regionList:[],products:[],revenue:[]};READY=true;lgBtn.disabled=false;setSource('err','Không kết nối được dữ liệu — hãy tải lại trang.');}
 }
 function setSheet(){
   const id=prompt('1/2 — Dán Google Sheet ID (đoạn giữa /d/ và /edit):',SHEET_ID); if(id===null)return; SHEET_ID=id.trim();
@@ -341,7 +359,7 @@ function renderDashboard(){
   view.innerHTML=`
     <div class="kpis">
       ${kpi('Tổng khách hàng','👥',tong,'#5b5bd6')}
-      ${kpi('Cần chăm sóc (7 ngày)','🔔',canCham,'#f59e0b')}
+      ${kpi('Cần gọi lại (7 ngày)','🔔',canCham,'#f59e0b')}
       ${kpi('Doanh thu đã chốt','💰',fmt(Math.round(dt/1e6))+' tr','#10b981')}
       ${kpi('Tỉ lệ chốt','🎯',tyle+'%','#ff7a59')}
     </div>
@@ -355,7 +373,7 @@ function renderDashboard(){
         ${C.filter(c=>c.follow).sort((a,b)=>String(a.follow).localeCompare(String(b.follow))).map(c=>`<tr><td class="name">${c.ten}</td><td>${tag(c.tt)}</td><td>${c.follow}</td></tr>`).join('')||'<tr><td colspan=3 class=empty>Không có</td></tr>'}
         </tbody></table></div></div>
       <div class="card assistant"><div class="card-head"><h3>Trợ lý nhanh</h3></div>
-        <div class="quick"><button onclick="ask('cần chăm sóc')">Cần chăm 7 ngày?</button><button onclick="ask('khách mới')">Khách mới?</button><button onclick="ask('doanh thu')">Doanh thu chốt?</button></div>
+        <div class="quick"><button onclick="ask('cần chăm sóc')">Cần gọi 7 ngày?</button><button onclick="ask('khách mới')">Khách mới?</button><button onclick="ask('doanh thu')">Doanh thu chốt?</button></div>
         <div class="row"><input id="askBox" placeholder="Hỏi về dữ liệu..." onkeydown="if(event.key==='Enter')ask(this.value)"><button class="btn-accent" onclick="ask(askBox.value)">Hỏi</button></div>
         <div class="ans" id="askAns">Gõ câu hỏi về khách hàng, hệ thống đọc dữ liệu hiển thị và trả lời.</div></div>
     </div>`;
@@ -366,7 +384,7 @@ function futureStr(days){const d=new Date();d.setDate(d.getDate()+days);return [
 function ask(q){
   if(!q)return;if(typeof askBox!=='undefined')askBox.value='';q=q.toLowerCase();const C=visibleCustomers();let a='';
   if(q.includes('chăm')||q.includes('liên hệ')){const l=C.filter(c=>c.follow&&String(c.follow)>=todayStr()&&String(c.follow)<=futureStr(7));a=l.length?'Cần chăm trong 7 ngày: '+l.map(c=>c.ten+' ('+c.follow+')').join(', '):'Không có lịch hẹn trong 7 ngày.';}
-  else if(q.includes('mới')){const l=C.filter(c=>c.tt==='Khách hàng mới');a='Khách hàng mới: '+(l.map(c=>c.ten).join(', ')||'không có');}
+  else if(q.includes('mới')){const l=C.filter(c=>String(c.tt).toLowerCase().includes('mới'));a='Khách mới: '+(l.map(c=>c.ten).join(', ')||'không có');}
   else if(q.includes('doanh thu')){const dt=C.filter(c=>c.tt==='Đã chốt').reduce((s,c)=>s+c.doanhThu,0);a='Doanh thu đã chốt: '+fmt(dt)+' đ.';}
   else a='Câu hỏi đã ghi nhận.';
   document.getElementById('askAns').textContent=a;
@@ -377,35 +395,78 @@ function drawRev(id){if(typeof Chart==='undefined')return;destroy(id);const c=cc
 function drawStatus(id){if(typeof Chart==='undefined')return;destroy(id);const c=cc();const cnt={};visibleCustomers().forEach(x=>cnt[x.tt]=(cnt[x.tt]||0)+1);charts[id]=new Chart(document.getElementById(id),{type:'doughnut',data:{labels:Object.keys(cnt),datasets:[{data:Object.values(cnt),backgroundColor:Object.keys(cnt).map(k=>color(k)),borderWidth:0}]},options:{responsive:true,cutout:'62%',plugins:{legend:{position:'bottom',labels:{color:c.muted,padding:12}}}}});}
 
 /* ====== KHÁCH HÀNG ====== */
-let kF={q:'',tt:'',pt:'',kv:''}, editingId=null;
+let kF={q:'',tt:'',pt:'',kv:'',from:'',to:'',pageSize:20,page:1}, editingId=null;
 function renderKhach(){
-  const ptFilter=isStaff()?'':`<select class="select" id="kpt" onchange="kF.pt=this.value;drawKhach()"><option value="">Mọi người phụ trách</option>${DB.users.map(u=>`<option>${u.name}</option>`).join('')}</select>`;
+  const ptFilter=isStaff()?'':`<select class="select" id="kpt" onchange="kF.pt=this.value;kF.page=1;drawKhach()"><option value="">Mọi người phụ trách</option>${DB.users.map(u=>`<option>${u.name}</option>`).join('')}</select>`;
   view.innerHTML=`<div class="toolbar">
-    <div class="search"><input id="kq" placeholder="Tìm tên / SĐT..." value="${kF.q}" oninput="kF.q=this.value;drawKhach()"></div>
-    <select class="select" id="ktt" onchange="kF.tt=this.value;drawKhach()"><option value="">Tất cả trạng thái</option>${DB.statuses.map(s=>`<option>${s}</option>`).join('')}</select>
+    <div class="search"><input id="kq" placeholder="Tìm tên / SĐT..." value="${kF.q}" oninput="kF.q=this.value;kF.page=1;drawKhach()"></div>
+    <select class="select" id="ktt" onchange="kF.tt=this.value;kF.page=1;drawKhach()"><option value="">Tất cả trạng thái</option>${DB.statuses.map(s=>`<option>${s}</option>`).join('')}</select>
     ${ptFilter}
-    <select class="select" id="kkv" onchange="kF.kv=this.value;drawKhach()"><option value="">Mọi khu vực</option>${DB.regions.map(r=>`<option>${r}</option>`).join('')}</select>
+    <select class="select" id="kkv" onchange="kF.kv=this.value;kF.page=1;drawKhach()"><option value="">Mọi khu vực</option>${DB.regions.map(r=>`<option>${r}</option>`).join('')}</select>
+    <label class="select" style="display:flex;align-items:center;gap:6px"><span style="color:var(--muted);font-size:12px">Từ</span><input type="date" id="kfrom" style="border:none;background:transparent;color:var(--ink);font-size:13px" value="${kF.from||''}" onchange="kF.from=this.value;kF.page=1;drawKhach()"></label>
+    <label class="select" style="display:flex;align-items:center;gap:6px"><span style="color:var(--muted);font-size:12px">Đến</span><input type="date" id="kto" style="border:none;background:transparent;color:var(--ink);font-size:13px" value="${kF.to||''}" onchange="kF.to=this.value;kF.page=1;drawKhach()"></label>
+    ${(kF.from||kF.to)?`<button class="btn-ghost" style="padding:11px 13px" onclick="kF.from='';kF.to='';kF.page=1;renderKhach()" title="Xóa lọc ngày">✕ ngày</button>`:''}
     <button class="btn-ghost" onclick="exportKhach()">⤓ Xuất Excel</button>
+    <button class="btn-ghost" id="kDelSel" style="color:#dc2626" onclick="deleteKhachBulk()">🗑 Xóa đã chọn</button>
     <button class="btn-accent" onclick="openAdd()">+ Thêm khách</button></div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>ID</th><th>Tên</th><th>SĐT</th><th>Sản phẩm</th><th>Thành tiền</th><th>Trạng thái (sửa được)</th><th>Phụ trách</th><th>Ghi chú</th><th>Hẹn lại</th><th></th></tr></thead><tbody id="kBody"></tbody></table></div>`;
+    <div class="toolbar" style="margin:0 0 10px;justify-content:space-between">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="color:var(--muted);font-size:13px">Hiển thị</span>
+        <select class="select" id="kps" style="padding:8px 10px" onchange="setKhachSize(this.value)">
+          ${[20,30,40,50].map(n=>`<option value="${n}" ${kF.pageSize===n?'selected':''}>${n}</option>`).join('')}
+          <option value="all" ${kF.pageSize==='all'?'selected':''}>Tất cả</option>
+        </select>
+        <input type="number" min="1" class="select" id="kpsCustom" placeholder="Tự nhập" value="${(typeof kF.pageSize==='number'&&![20,30,40,50].includes(kF.pageSize))?kF.pageSize:''}" style="width:110px;padding:8px 10px" oninput="setKhachSizeCustom(this.value)">
+        <span style="color:var(--muted);font-size:13px">dòng/trang</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="color:var(--muted);font-size:12px">Cuộn ngang:</span>
+        <button class="btn-ghost" style="padding:7px 12px" onclick="scrollKhachH(-400)" title="Cuộn sang trái">◀</button>
+        <button class="btn-ghost" style="padding:7px 12px" onclick="scrollKhachH(400)" title="Cuộn sang phải">▶</button>
+        <span style="width:1px;height:20px;background:var(--line);display:inline-block"></span>
+        <button class="btn-ghost" id="kPrev" style="padding:7px 12px" onclick="khachPage(-1)">‹</button>
+        <span id="kPagerInfo" style="font-size:13px;color:var(--muted);min-width:140px;text-align:center"></span>
+        <button class="btn-ghost" id="kNext" style="padding:7px 12px" onclick="khachPage(1)">›</button>
+      </div>
+    </div>
+    <div class="tbl-wrap" id="kWrap"><table class="tbl"><thead><tr><th style="width:34px"><input type="checkbox" id="kCheckAll" onclick="toggleAllKhach(this)"></th><th>ID</th><th>Tên</th><th>SĐT</th><th>Khu vực</th><th>Sản phẩm</th><th>Diện tích</th><th>Trạng thái (sửa được)</th><th>Phụ trách</th><th>Gọi lần 1</th><th>Gọi lần 2</th><th>Ghi chú</th><th>Kết quả</th><th>Hẹn gọi lại</th><th></th></tr></thead><tbody id="kBody"></tbody></table></div>`;
   document.getElementById('ktt').value=kF.tt;if(document.getElementById('kpt'))document.getElementById('kpt').value=kF.pt;document.getElementById('kkv').value=kF.kv;drawKhach();
 }
+function setKhachSize(v){kF.pageSize=(v==='all'?'all':+v);kF.page=1;const ci=document.getElementById('kpsCustom');if(ci)ci.value='';drawKhach();}
+function setKhachSizeCustom(v){const n=parseInt(v,10);if(n>0){kF.pageSize=n;kF.page=1;const sel=document.getElementById('kps');if(sel)sel.value=[20,30,40,50].includes(n)?String(n):'';drawKhach();}}
+function khachPage(d){kF.page+=d;drawKhach();}
+function scrollKhachH(dx){const w=document.getElementById('kWrap');if(w)w.scrollBy({left:dx,behavior:'smooth'});}
 function drawKhach(){
   const q=kF.q.toLowerCase();
-  const rows=visibleCustomers().filter(c=>(!kF.tt||c.tt===kF.tt)&&(!kF.pt||c.phuTrach===kF.pt)&&(!kF.kv||c.khuVuc===kF.kv)&&(!q||[c.ten,c.sdt].join(' ').toLowerCase().includes(q)));
-  kBody.innerHTML=rows.length?rows.map(c=>`<tr>
-    <td>${c.id}</td><td class="name" style="cursor:pointer;color:var(--primary)" onclick="openDetail(${c.id})">${c.ten}</td><td>${c.sdt}</td><td>${c.sanPham||''}</td>
-    <td>${c.doanhThu?fmt(c.doanhThu)+' đ':'—'}</td>
+  let rows=visibleCustomers().filter(c=>(!kF.tt||c.tt===kF.tt)&&(!kF.pt||c.phuTrach===kF.pt)&&(!kF.kv||c.khuVuc===kF.kv)&&(!q||[c.ten,c.sdt].join(' ').toLowerCase().includes(q)));
+  if(kF.from||kF.to){rows=rows.filter(c=>{const iso=ddmmToISO(c.ngay);if(!iso)return false;if(kF.from&&iso<kF.from)return false;if(kF.to&&iso>kF.to)return false;return true;});}
+  const total=rows.length;
+  const size=kF.pageSize==='all'?(total||1):kF.pageSize;
+  const pages=Math.max(1,Math.ceil(total/size));
+  if(kF.page>pages)kF.page=pages;if(kF.page<1)kF.page=1;
+  const start=(kF.page-1)*size;
+  const pageRows=kF.pageSize==='all'?rows:rows.slice(start,start+size);
+  kBody.innerHTML=pageRows.length?pageRows.map(c=>`<tr>
+    <td><input type="checkbox" class="kChk" value="${c.id}"></td>
+    <td>${c.id}</td><td class="name" style="cursor:pointer;color:var(--primary)" onclick="openDetail(${c.id})">${c.ten}</td><td>${c.sdt}</td><td>${c.khuVuc||'—'}</td><td>${c.sanPham||''}</td>
+    <td>${c.dienTich?fmt(c.dienTich)+' m²':'—'}</td>
     <td><select class="select" style="padding:5px 8px;font-size:12px;border-left:4px solid ${color(c.tt)}" onchange="quickStatus(${c.id},this.value)">${DB.statuses.map(s=>`<option ${s===c.tt?'selected':''}>${s}</option>`).join('')}</select></td>
     <td>${c.phuTrach||''}</td>
+    <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(c.goiLan1||'').replace(/"/g,'&quot;')}">${c.goiLan1||'—'}</td>
+    <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(c.goiLan2||'').replace(/"/g,'&quot;')}">${c.goiLan2||'—'}</td>
     <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(c.ghiChu||'').replace(/"/g,'&quot;')}">${(c.ghiChu||'').replace(/\n/g,' · ')||'—'}</td>
-    <td>${c.follow||'—'}</td>
-    <td style="white-space:nowrap"><button class="btn-ghost" style="padding:6px 9px;font-size:12px" onclick="openEdit(${c.id})">✎</button> <button class="btn-ghost" style="padding:6px 9px;font-size:12px" onclick="deleteKhach(${c.id})">🗑</button></td></tr>`).join(''):'<tr><td colspan=10 class=empty>Không có khách hàng.</td></tr>';
+    <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(lastCareResult(c.id)||'').replace(/"/g,'&quot;')}">${lastCareResult(c.id)||'—'}</td>
+    <td><input type="date" class="select" style="padding:5px 8px;font-size:12px" value="${ddmmToISO(c.follow)}" onchange="quickFollow(${c.id},this.value)"></td>
+    <td style="white-space:nowrap"><button class="btn-ghost" style="padding:6px 9px;font-size:12px" onclick="openEdit(${c.id})">✎</button> <button class="btn-ghost" style="padding:6px 9px;font-size:12px" onclick="deleteKhach(${c.id})">🗑</button></td></tr>`).join(''):'<tr><td colspan=15 class=empty>Không có khách hàng.</td></tr>';
+  const info=document.getElementById('kPagerInfo');
+  if(info){const a=total?start+1:0,b=kF.pageSize==='all'?total:Math.min(start+size,total);info.textContent=`${a}–${b} / ${total} · Trang ${kF.page}/${pages}`;}
+  const prev=document.getElementById('kPrev'),next=document.getElementById('kNext');
+  if(prev)prev.disabled=kF.page<=1;if(next)next.disabled=kF.page>=pages;
 }
 function calcThanh(){const v=(Number(k_dientich.value)||0)*(Number(k_dongia.value)||0);k_thanh.value=v?Math.round(v):'';}
 function onProduct(){const p=DB.products.find(x=>x.ten===k_sp.value);if(p&&p.gia)k_dongia.value=p.gia;calcThanh();}
 function lockPhuTrach(){ if(isStaff()){k_pt.value=CURRENT.name;k_pt.disabled=true;} else {k_pt.disabled=false;} }
-function openAdd(){editingId=null;document.querySelector('#ovKhach .modal-h h3').textContent='Thêm khách hàng';clearK();k_tt.value=DB.statuses[0]||'';lockPhuTrach();openModal('ovKhach');}
+function openAdd(){editingId=null;document.querySelector('#ovKhach .modal-h h3').textContent='Thêm khách hàng';clearK();k_tt.value=DB.statuses[0]||'';k_hengoi.value=isoPlus(2);lockPhuTrach();openModal('ovKhach');}
 function openEdit(id){
   const c=DB.customers.find(x=>x.id==id);if(!c)return;
   if(isStaff()&&c.phuTrach!==CURRENT.name){toast('Bạn không có quyền sửa khách này');return;}
@@ -413,6 +474,7 @@ function openEdit(id){
   document.querySelector('#ovKhach .modal-h h3').textContent='Sửa khách hàng #'+id;
   k_ten.value=c.ten;k_sdt.value=c.sdt;k_sp.value=c.sanPham||'';k_dientich.value=c.dienTich||'';k_dongia.value=c.donGia||'';
   k_tt.value=c.tt;k_pt.value=c.phuTrach||'';k_nguon.value=c.nguon||'';k_kv.value=c.khuVuc||'';k_diachi.value=c.diaChi||'';k_ghichu.value=c.ghiChu||'';
+  k_goi1.value=c.goiLan1||'';k_goi2.value=c.goiLan2||'';k_hengoi.value=ddmmToISO(c.follow);
   lockPhuTrach();calcThanh();closeModal('ovDetail');openModal('ovKhach');
 }
 function openDetail(id){
@@ -424,18 +486,16 @@ function openDetail(id){
   d_body.innerHTML=`
     <div class="form-grid" style="margin-bottom:10px">
       ${info('SĐT',c.sdt)}${info('Trạng thái',`<span class="tag" style="background:${color(c.tt)}">${c.tt}</span>`)}
-      ${info('Sản phẩm',c.sanPham)}${info('Thành tiền',c.doanhThu?fmt(c.doanhThu)+' đ':'—')}
+      ${info('Sản phẩm',c.sanPham)}${info('Diện tích',c.dienTich?fmt(c.dienTich)+' m²':'—')}
       ${info('Nguồn',c.nguon)}${info('Khu vực',c.khuVuc)}
       ${info('Phụ trách',c.phuTrach)}${info('Ngày tạo',c.ngay)}
+      ${info('Gọi lần 1',c.goiLan1)}${info('Gọi lần 2',c.goiLan2)}
+      ${info('Hẹn gọi lại',c.follow)}${info('Thành tiền',c.doanhThu?fmt(c.doanhThu)+' đ':'—')}
       <div class="full">${info('Địa chỉ',c.diaChi)}</div>
       <div class="full">${info('Ghi chú',(c.ghiChu||'').replace(/\n/g,'<br>'))}</div>
-    </div>
-    <h3 style="font-size:14px;margin:6px 0 8px">Lịch sử chăm sóc (${cares.length})</h3>
-    <div class="tbl-wrap" style="box-shadow:none"><table class="tbl"><thead><tr><th>Ngày</th><th>Kênh</th><th>Nội dung</th><th>Kết quả</th><th>Hẹn lại</th><th></th></tr></thead><tbody>
-    ${cares.map(x=>`<tr><td>${x.ngay}</td><td>${x.kenh}</td><td>${x.nd}</td><td>${x.kq}</td><td>${x.follow||'—'}</td><td style="white-space:nowrap"><button class="btn-ghost" style="padding:4px 8px;font-size:11px" onclick="openCareEdit(${x.id})">✎</button> <button class="btn-ghost" style="padding:4px 8px;font-size:11px" onclick="deleteCare(${x.id})">🗑</button></td></tr>`).join('')||'<tr><td colspan=6 class=empty>Chưa có</td></tr>'}
-    </tbody></table></div>`;
+    </div>`;
   d_edit.onclick=()=>openEdit(id);
-  d_addcare.onclick=()=>{closeModal('ovDetail');openCareAdd(id);};
+  if(d_addcare)d_addcare.style.display='none';
   openModal('ovDetail');
 }
 async function quickStatus(id,val){
@@ -450,11 +510,23 @@ async function deleteKhach(id){
   try{const res=await apiPost({action:'deleteCustomer',id});if(!res.ok)throw new Error(res.error);toast('Đã xóa khách #'+id);await reloadData();go('khach');}
   catch(e){toast('Lỗi: '+e.message);}
 }
+function toggleAllKhach(box){document.querySelectorAll('.kChk').forEach(c=>c.checked=box.checked);}
+function selectedKhachIds(){return [...document.querySelectorAll('.kChk:checked')].map(c=>c.value);}
+async function deleteKhachBulk(){
+  const ids=selectedKhachIds();
+  if(!ids.length){toast('Chưa chọn khách nào');return;}
+  if(!confirm('Xóa '+ids.length+' khách đã chọn? Không thể hoàn tác.'))return;
+  if(!API_URL){DB.customers=DB.customers.filter(c=>!ids.includes(String(c.id)));toast('Đã xóa '+ids.length+' khách (tạm)');drawKhach();return;}
+  const btn=document.getElementById('kDelSel');if(btn){btn.disabled=true;btn.textContent='Đang xóa...';}
+  let ok=0;for(const id of ids){try{const r=await apiPost({action:'deleteCustomer',id});if(r.ok)ok++;}catch(e){}}
+  toast('Đã xóa '+ok+'/'+ids.length+' khách');await reloadData();go('khach');
+}
 function exportKhach(){
   const q=kF.q.toLowerCase();
-  const rows=visibleCustomers().filter(c=>(!kF.tt||c.tt===kF.tt)&&(!kF.pt||c.phuTrach===kF.pt)&&(!kF.kv||c.khuVuc===kF.kv)&&(!q||[c.ten,c.sdt].join(' ').toLowerCase().includes(q)));
+  let rows=visibleCustomers().filter(c=>(!kF.tt||c.tt===kF.tt)&&(!kF.pt||c.phuTrach===kF.pt)&&(!kF.kv||c.khuVuc===kF.kv)&&(!q||[c.ten,c.sdt].join(' ').toLowerCase().includes(q)));
+  if(kF.from||kF.to){rows=rows.filter(c=>{const iso=ddmmToISO(c.ngay);if(!iso)return false;if(kF.from&&iso<kF.from)return false;if(kF.to&&iso>kF.to)return false;return true;});}
   if(!rows.length){toast('Không có dữ liệu để xuất');return;}
-  const cols=[['ID','id'],['Ngày tạo','ngay'],['Tên','ten'],['SĐT','sdt'],['Sản phẩm','sanPham'],['Diện tích','dienTich'],['Đơn giá','donGia'],['Thành tiền','doanhThu'],['Trạng thái','tt'],['Phụ trách','phuTrach'],['Nguồn','nguon'],['Khu vực','khuVuc'],['Hẹn lại','follow'],['Ghi chú','ghiChu']];
+  const cols=[['ID','id'],['Ngày tạo','ngay'],['Tên','ten'],['SĐT','sdt'],['Khu vực','khuVuc'],['Sản phẩm','sanPham'],['Diện tích','dienTich'],['Đơn giá','donGia'],['Thành tiền','doanhThu'],['Trạng thái','tt'],['Phụ trách','phuTrach'],['Nguồn','nguon'],['Gọi lần 1','goiLan1'],['Gọi lần 2','goiLan2'],['Hẹn gọi lại','follow'],['Ghi chú','ghiChu']];
   const csv=[cols.map(c=>c[0]).join(',')].concat(rows.map(r=>cols.map(c=>{const v=String(r[c[1]]??'').replace(/"/g,'""');return /[",\n]/.test(v)?`"${v}"`:v;}).join(','))).join('\n');
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'}));
   a.download='khach_hang_'+new Date().toISOString().slice(0,10)+'.csv';a.click();
@@ -464,10 +536,11 @@ async function saveKhach(){
   if(!ten||!sdt){toast('Nhập tên và SĐT');return;}
   const dt=Number(k_dientich.value)||0,dg=Number(k_dongia.value)||0,thanh=Math.round(dt*dg);
   const phuTrach=isStaff()?CURRENT.name:k_pt.value;
-  const payload={'Tên khách hàng':ten,'Số điện thoại':sdt,'Sản phẩm':k_sp.value,'Diện tích':dt,'Đơn giá':dg,'Thành tiền':thanh,'Ghi chú':k_ghichu.value,'Địa chỉ':k_diachi.value,'Trạng thái':k_tt.value,'Người phụ trách':phuTrach,'Nguồn khách':k_nguon.value,'Khu vực':k_kv.value};
+  const goi1=k_goi1.value.trim(),goi2=k_goi2.value.trim(),hengoi=k_hengoi.value?isoToDdmm(k_hengoi.value):'';
+  const payload={'Tên khách hàng':ten,'Số điện thoại':sdt,'Sản phẩm':k_sp.value,'Diện tích':dt,'Đơn giá':dg,'Thành tiền':thanh,'Ghi chú':k_ghichu.value,'Địa chỉ':k_diachi.value,'Trạng thái':k_tt.value,'Người phụ trách':phuTrach,'Nguồn khách':k_nguon.value,'Khu vực':k_kv.value,'Gọi lần 1':goi1,'Gọi lần 2':goi2,'Hẹn gọi lại':hengoi};
   if(!API_URL){
-    const obj={ten,sdt,sanPham:k_sp.value,dienTich:dt,donGia:dg,doanhThu:thanh,ghiChu:k_ghichu.value,diaChi:k_diachi.value,tt:k_tt.value,phuTrach,nguon:k_nguon.value,khuVuc:k_kv.value};
-    if(editingId){Object.assign(DB.customers.find(x=>x.id==editingId),obj);} else {DB.customers.unshift(Object.assign({id:Date.now(),ngay:todayStr(),follow:''},obj));}
+    const obj={ten,sdt,sanPham:k_sp.value,dienTich:dt,donGia:dg,doanhThu:thanh,ghiChu:k_ghichu.value,diaChi:k_diachi.value,tt:k_tt.value,phuTrach,nguon:k_nguon.value,khuVuc:k_kv.value,goiLan1:goi1,goiLan2:goi2,follow:hengoi};
+    if(editingId){Object.assign(DB.customers.find(x=>x.id==editingId),obj);} else {DB.customers.unshift(Object.assign({id:Date.now(),ngay:todayStr()},obj));}
     closeModal('ovKhach');toast('Đã lưu (tạm — chưa nối Apps Script)');drawKhach();return;
   }
   const btn=event&&event.target;if(btn){btn.disabled=true;btn.textContent='Đang ghi...';}
@@ -478,7 +551,15 @@ async function saveKhach(){
     closeModal('ovKhach');toast(editingId?'Đã cập nhật khách #'+editingId:'Đã lưu khách #'+res.id);await reloadData();
   }catch(e){toast('Lỗi: '+e.message);}finally{if(btn){btn.disabled=false;btn.textContent='Lưu khách hàng';}}
 }
-function clearK(){['k_ten','k_sdt','k_diachi','k_ghichu','k_dientich','k_dongia','k_thanh'].forEach(id=>document.getElementById(id).value='');k_sp.value='';}
+function clearK(){['k_ten','k_sdt','k_diachi','k_ghichu','k_dientich','k_dongia','k_thanh','k_goi1','k_goi2','k_hengoi'].forEach(id=>document.getElementById(id).value='');k_sp.value='';}
+/* Chọn tay ngày hẹn gọi lại ngay trên bảng (ô lịch). */
+async function quickFollow(id,iso){
+  const ddmm=iso?isoToDdmm(iso):'';
+  const c=DB.customers.find(x=>x.id==id);if(c)c.follow=ddmm;
+  if(!API_URL){toast('Đã đặt hẹn gọi lại (tạm)');return;}
+  try{const res=await apiPost({action:'updateCustomer',id,data:{'Hẹn gọi lại':ddmm}});if(!res.ok)throw new Error(res.error);toast('Đã đặt hẹn gọi lại #'+id);}
+  catch(e){toast('Lỗi: '+e.message);}
+}
 
 /* ====== CHĂM SÓC ====== */
 let csF={q:'',kh:''}, careEditingId=null;
@@ -488,14 +569,15 @@ function renderChamSoc(){
   view.innerHTML=`<div class="toolbar">
     <div class="search"><input id="csq" placeholder="Tìm nội dung / kết quả..." value="${csF.q}" oninput="csF.q=this.value;drawCare()"></div>
     <select class="select" id="csfkh" onchange="csF.kh=this.value;drawCare()"><option value="">Mọi khách hàng</option>${mine.map(c=>`<option value="${c.id}">${c.ten}</option>`).join('')}</select>
+    <button class="btn-ghost" id="csDelSel" style="color:#dc2626" onclick="deleteCareBulk()">🗑 Xóa đã chọn</button>
     <button class="btn-accent" onclick="openCareAdd()">+ Ghi lịch sử chăm sóc</button></div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Ngày</th><th>Khách hàng</th><th>Kênh</th><th>Nội dung</th><th>Kết quả</th><th>Hẹn lại</th><th>Nhân viên</th><th></th></tr></thead><tbody id="csBody"></tbody></table></div>`;
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th style="width:34px"><input type="checkbox" id="csCheckAll" onclick="toggleAllCare(this)"></th><th>Ngày</th><th>Khách hàng</th><th>Kênh</th><th>Nội dung</th><th>Kết quả</th><th>Hẹn lại</th><th>Nhân viên</th><th></th></tr></thead><tbody id="csBody"></tbody></table></div>`;
   document.getElementById('csfkh').value=csF.kh;drawCare();
 }
 function drawCare(){
   const q=csF.q.toLowerCase();
   const rows=visibleCare().filter(x=>(!csF.kh||x.khId==csF.kh)&&(!q||[x.nd,x.kq].join(' ').toLowerCase().includes(q))).slice().reverse();
-  csBody.innerHTML=rows.length?rows.map(x=>{const kh=DB.customers.find(c=>c.id==x.khId)||{};return `<tr><td>${x.ngay}</td><td class="name">${kh.ten||'?'}</td><td>${x.kenh}</td><td>${x.nd}</td><td>${x.kq}</td><td>${x.follow||'—'}</td><td>${x.nv||''}</td><td style="white-space:nowrap"><button class="btn-ghost" style="padding:5px 9px;font-size:12px" onclick="openCareEdit(${x.id})">✎</button> <button class="btn-ghost" style="padding:5px 9px;font-size:12px" onclick="deleteCare(${x.id})">🗑</button></td></tr>`;}).join(''):'<tr><td colspan=8 class=empty>Chưa có lịch sử chăm sóc.</td></tr>';
+  csBody.innerHTML=rows.length?rows.map(x=>{const kh=DB.customers.find(c=>c.id==x.khId)||{};return `<tr><td><input type="checkbox" class="csChk" value="${x.id}"></td><td>${x.ngay}</td><td class="name">${kh.ten||'?'}</td><td>${x.kenh}</td><td>${x.nd}</td><td>${x.kq}</td><td>${x.follow||'—'}</td><td>${x.nv||''}</td><td style="white-space:nowrap"><button class="btn-ghost" style="padding:5px 9px;font-size:12px" onclick="openCareEdit(${x.id})">✎</button> <button class="btn-ghost" style="padding:5px 9px;font-size:12px" onclick="deleteCare(${x.id})">🗑</button></td></tr>`;}).join(''):'<tr><td colspan=9 class=empty>Chưa có lịch sử chăm sóc.</td></tr>';
 }
 function openCareAdd(khId){careEditingId=null;document.querySelector('#ovCare .modal-h h3').textContent='Ghi lịch sử chăm sóc';clearCs();cs_ngay.value=todayStr();if(khId)cs_kh.value=khId;openModal('ovCare');}
 function openCareEdit(id){const x=DB.care.find(c=>c.id==id);if(!x)return;careEditingId=id;document.querySelector('#ovCare .modal-h h3').textContent='Sửa lịch sử #'+id;cs_kh.value=x.khId;cs_ngay.value=x.ngay;cs_kenh.value=x.kenh;cs_nd.value=x.nd;cs_kq.value=x.kq;cs_follow.value=x.follow;closeModal('ovDetail');openModal('ovCare');}
@@ -520,16 +602,29 @@ async function deleteCare(id){
   try{const res=await apiPost({action:'deleteCare',id});if(!res.ok)throw new Error(res.error);toast('Đã xóa');await reloadData();go('chamsoc');}
   catch(e){toast('Lỗi: '+e.message);}
 }
+function toggleAllCare(box){document.querySelectorAll('.csChk').forEach(c=>c.checked=box.checked);}
+async function deleteCareBulk(){
+  const ids=[...document.querySelectorAll('.csChk:checked')].map(c=>c.value);
+  if(!ids.length){toast('Chưa chọn lịch sử nào');return;}
+  if(!confirm('Xóa '+ids.length+' lịch sử đã chọn?'))return;
+  if(!API_URL){DB.care=DB.care.filter(c=>!ids.includes(String(c.id)));toast('Đã xóa '+ids.length+' (tạm)');renderChamSoc();return;}
+  const btn=document.getElementById('csDelSel');if(btn){btn.disabled=true;btn.textContent='Đang xóa...';}
+  let ok=0;for(const id of ids){try{const r=await apiPost({action:'deleteCare',id});if(r.ok)ok++;}catch(e){}}
+  toast('Đã xóa '+ok+'/'+ids.length);await reloadData();go('chamsoc');
+}
 function clearCs(){['cs_nd','cs_kq','cs_follow'].forEach(id=>document.getElementById(id).value='');}
 
-/* ====== PIPELINE (theo trạng thái) ====== */
+/* ====== PIPELINE (theo trạng thái) — TỰ lấy danh sách trạng thái từ Sheet ====== */
 function renderPipeline(){
-  const cnt={};STAGES.forEach(s=>cnt[s]=0);visibleCustomers().forEach(c=>{if(cnt[c.tt]!=null)cnt[c.tt]++;});
+  const stages=(DB.statuses&&DB.statuses.length)?DB.statuses:STAGES;
+  const cnt={};stages.forEach(s=>cnt[s]=0);
+  const C=visibleCustomers();
+  C.forEach(c=>{if(cnt[c.tt]!=null)cnt[c.tt]++;});
   const max=Math.max(1,...Object.values(cnt));
-  const lost=visibleCustomers().filter(c=>c.tt==='Không quan tâm').length;
+  const khac=C.filter(c=>cnt[c.tt]==null).length; // khách có trạng thái không nằm trong danh mục
   view.innerHTML=`<div class="card"><div class="card-head"><h3>Phễu bán hàng — số khách theo trạng thái</h3></div>
-    <div class="funnel">${STAGES.map(s=>`<div class="stage"><div class="lbl">${s}</div><div class="meter"><div class="fill" style="width:${Math.max(12,cnt[s]/max*100)}%;background:${color(s)}">${cnt[s]} khách</div></div></div>`).join('')}</div>
-    <p style="color:var(--muted);margin-top:14px;font-size:13px">Không quan tâm: <b>${lost}</b> khách</p></div>`;
+    <div class="funnel">${stages.map(s=>`<div class="stage"><div class="lbl">${s}</div><div class="meter"><div class="fill" style="width:${Math.max(12,cnt[s]/max*100)}%;background:${color(s)}">${cnt[s]} khách</div></div></div>`).join('')}</div>
+    <p style="color:var(--muted);margin-top:14px;font-size:13px">Tổng: <b>${C.length}</b> khách${khac?` · <b>${khac}</b> khách có trạng thái khác (chưa khớp danh mục)`:''}</p></div>`;
 }
 
 /* ====== DOANH THU ====== */
@@ -544,58 +639,154 @@ function renderThuChi(){
 }
 
 /* ====== CÀI ĐẶT (người dùng) ====== */
+let catEdit={trangthai:null,nguon:null,khuvuc:null,sanpham:null};
 function renderCaiDat(){
-  const addBtn=CURRENT.role==='Admin'?`<button class="btn-accent" onclick="openModal('ovUser')">+ Thêm người dùng</button>`:'';
-  const chips=arr=>arr.map(x=>`<span style="display:inline-block;padding:4px 10px;border:1px solid var(--line);border-radius:999px;margin:3px;font-size:12px">${x}</span>`).join('')||'<span class="muted" style="color:var(--muted);font-size:12px">—</span>';
+  const isAdmin=CURRENT.role==='Admin';
+  const addBtn=isAdmin?`<button class="btn-ghost" id="uDelSel" style="color:#dc2626" onclick="deleteUserBulk()">🗑 Xóa đã chọn</button> <button class="btn-accent" onclick="openUserAdd()">+ Thêm người dùng</button>`:'';
+  const userHead=isAdmin?`<th style="width:34px"><input type="checkbox" onclick="toggleAllUser(this)"></th>`:'';
+  const userActHead=isAdmin?'<th></th>':'';
+  const userRow=u=>{
+    const chk=isAdmin?`<td><input type="checkbox" class="uChk" value="${u.id}"></td>`:'';
+    const act=isAdmin?`<td style="white-space:nowrap"><button class="btn-ghost" style="padding:6px 9px;font-size:12px" onclick="openUserEdit(${u.id})">✎</button> <button class="btn-ghost" style="padding:6px 9px;font-size:12px" onclick="deleteUser(${u.id})">🗑</button></td>`:'';
+    return `<tr>${chk}<td class="name">${u.name}</td><td>${u.user}</td><td>${tagRole(u.vitri)}</td><td>${u.phongBan||''}</td>${act}</tr>`;
+  };
+  // 1 hàng danh mục: danh sách item có nút sửa/xóa + ô nhập
+  const catRow=(item,type,extra='')=>`<span style="display:inline-flex;align-items:center;gap:6px;padding:4px 6px 4px 10px;border:1px solid var(--line);border-radius:999px;margin:3px;font-size:12px">${extra}${item.ten}<button class="btn-ghost" style="padding:2px 6px;font-size:11px;border-radius:50%" title="Sửa" onclick="catEditStart('${type}',${item.id})">✎</button><button class="btn-ghost" style="padding:2px 6px;font-size:11px;border-radius:50%;color:#dc2626" title="Xóa" onclick="deleteCategory('${type}',${item.id})">×</button></span>`;
+  const dot=m=>`<span style="width:11px;height:11px;border-radius:50%;background:${m||'#64748b'};display:inline-block"></span>`;
+  const ttItems=(DB.statusList||[]).map(x=>catRow(x,'trangthai',dot(x.mau))).join('')||'<span style="color:var(--muted);font-size:12px">—</span>';
+  const ngItems=(DB.sourceList||[]).map(x=>catRow(x,'nguon')).join('')||'<span style="color:var(--muted);font-size:12px">—</span>';
+  const kvItems=(DB.regionList||[]).map(x=>catRow(x,'khuvuc')).join('')||'<span style="color:var(--muted);font-size:12px">—</span>';
+  const spItems=(DB.products||[]).map(x=>catRow({id:x.id,ten:x.ten+(x.gia?' ('+fmt(x.gia)+'đ)':'')},'sanpham')).join('')||'<span style="color:var(--muted);font-size:12px">—</span>';
+  const lbl=t=>catEdit[t]?'Cập nhật':'Thêm';
+  const cancel=t=>catEdit[t]?`<button class="btn-ghost" onclick="catEditCancel('${t}')">Hủy</button>`:'';
   view.innerHTML=`<div class="card"><div class="card-head"><h3>Người dùng &amp; phân quyền (tab Nhân viên)</h3>${addBtn}</div>
-    <div class="tbl-wrap" style="box-shadow:none;border:none"><table class="tbl"><thead><tr><th>Tên nhân viên</th><th>Tài khoản</th><th>Vị trí</th><th>Phòng ban</th></tr></thead><tbody>
-    ${DB.users.map(u=>`<tr><td class="name">${u.name}</td><td>${u.user}</td><td>${tagRole(u.vitri)}</td><td>${u.phongBan||''}</td></tr>`).join('')}
+    <div class="tbl-wrap" style="box-shadow:none;border:none"><table class="tbl"><thead><tr>${userHead}<th>Tên nhân viên</th><th>Tài khoản</th><th>Vị trí</th><th>Phòng ban</th>${userActHead}</tr></thead><tbody>
+    ${DB.users.map(userRow).join('')}
     </tbody></table></div>
     <p style="color:var(--muted);margin-top:14px;font-size:13px">Admin: toàn quyền · Trưởng phòng: quản lý + doanh thu · Nhân viên: chỉ thấy khách mình phụ trách.</p></div>
 
     <div class="card" style="margin-top:16px"><div class="card-head"><h3>Danh mục (đồng bộ 2 chiều với CRM Sheet)</h3></div>
       <div style="display:flex;flex-direction:column;gap:16px">
-        <div><b style="font-size:13px">Trạng thái</b><div style="margin:6px 0">${chips(DB.statuses)}</div>
-          <div class="toolbar" style="margin:0"><input class="select" id="cat_tt_ten" placeholder="Tên trạng thái" style="flex:1;min-width:160px"><input class="select" id="cat_tt_mau" placeholder="#3B82F6" style="width:120px"><button class="btn-accent" onclick="addCategory('trangthai')">Thêm</button></div></div>
-        <div><b style="font-size:13px">Nguồn khách</b><div style="margin:6px 0">${chips(DB.sources)}</div>
-          <div class="toolbar" style="margin:0"><input class="select" id="cat_ng_ten" placeholder="Tên nguồn khách" style="flex:1;min-width:160px"><button class="btn-accent" onclick="addCategory('nguon')">Thêm</button></div></div>
-        <div><b style="font-size:13px">Khu vực</b><div style="margin:6px 0">${chips(DB.regions)}</div>
-          <div class="toolbar" style="margin:0"><input class="select" id="cat_kv_ten" placeholder="Tên khu vực" style="flex:1;min-width:160px"><button class="btn-accent" onclick="addCategory('khuvuc')">Thêm</button></div></div>
-        <div><b style="font-size:13px">Sản phẩm</b><div style="margin:6px 0">${chips(DB.products.map(p=>p.ten+(p.gia?' ('+fmt(p.gia)+'đ)':'')))}</div>
-          <div class="toolbar" style="margin:0"><input class="select" id="cat_sp_ten" placeholder="Tên sản phẩm" style="flex:1;min-width:160px"><input class="select" id="cat_sp_gia" type="number" placeholder="Đơn giá" style="width:130px"><button class="btn-accent" onclick="addCategory('sanpham')">Thêm</button></div></div>
+        <div><b style="font-size:13px">Trạng thái</b><div style="margin:6px 0">${ttItems}</div>
+          <div class="toolbar" style="margin:0"><input class="select" id="cat_tt_ten" placeholder="Tên trạng thái" style="flex:1;min-width:160px"><input class="select" id="cat_tt_mau" placeholder="#3B82F6" style="width:120px"><button class="btn-accent" onclick="addCategory('trangthai')">${lbl('trangthai')}</button>${cancel('trangthai')}</div></div>
+        <div><b style="font-size:13px">Nguồn khách</b><div style="margin:6px 0">${ngItems}</div>
+          <div class="toolbar" style="margin:0"><input class="select" id="cat_ng_ten" placeholder="Tên nguồn khách" style="flex:1;min-width:160px"><button class="btn-accent" onclick="addCategory('nguon')">${lbl('nguon')}</button>${cancel('nguon')}</div></div>
+        <div><b style="font-size:13px">Khu vực</b><div style="margin:6px 0">${kvItems}</div>
+          <div class="toolbar" style="margin:0"><input class="select" id="cat_kv_ten" placeholder="Tên khu vực" style="flex:1;min-width:160px"><button class="btn-accent" onclick="addCategory('khuvuc')">${lbl('khuvuc')}</button>${cancel('khuvuc')}</div></div>
+        <div><b style="font-size:13px">Sản phẩm</b><div style="margin:6px 0">${spItems}</div>
+          <div class="toolbar" style="margin:0"><input class="select" id="cat_sp_ten" placeholder="Tên sản phẩm" style="flex:1;min-width:160px"><input class="select" id="cat_sp_gia" type="number" placeholder="Đơn giá" style="width:130px"><button class="btn-accent" onclick="addCategory('sanpham')">${lbl('sanpham')}</button>${cancel('sanpham')}</div></div>
       </div>
-      <p style="color:var(--muted);margin-top:12px;font-size:12px">Thêm ở đây ghi thẳng vào CRM Sheet (đồng bộ Web → CRM). Sửa/xóa danh mục thực hiện trực tiếp trên Sheet rồi tải lại (đồng bộ CRM → Web).</p>
+      <p style="color:var(--muted);margin-top:12px;font-size:12px">Thêm / sửa / xóa ở đây ghi thẳng vào CRM Sheet (đồng bộ Web → CRM). Bấm ✎ để sửa, × để xóa từng mục.</p>
     </div>`;
+  applyCatEdit();
+}
+// Đổ giá trị mục đang sửa vào ô nhập
+function applyCatEdit(){
+  if(catEdit.trangthai){const it=(DB.statusList||[]).find(x=>x.id==catEdit.trangthai);if(it){cat_tt_ten.value=it.ten;cat_tt_mau.value=it.mau||'';}}
+  if(catEdit.nguon){const it=(DB.sourceList||[]).find(x=>x.id==catEdit.nguon);if(it)cat_ng_ten.value=it.ten;}
+  if(catEdit.khuvuc){const it=(DB.regionList||[]).find(x=>x.id==catEdit.khuvuc);if(it)cat_kv_ten.value=it.ten;}
+  if(catEdit.sanpham){const it=(DB.products||[]).find(x=>x.id==catEdit.sanpham);if(it){cat_sp_ten.value=it.ten;cat_sp_gia.value=it.gia||'';}}
+}
+function catEditStart(type,id){Object.keys(catEdit).forEach(k=>catEdit[k]=null);catEdit[type]=id;renderCaiDat();}
+function catEditCancel(type){catEdit[type]=null;renderCaiDat();}
+function catTabName(type){return {trangthai:'Trạng thái',nguon:'Nguồn khách',khuvuc:'Khu vực',sanpham:'SanPham'}[type];}
+// Đồng bộ lại các mảng chuỗi từ *List (dùng cho chế độ demo)
+function syncCatStrings(){
+  DB.statuses=(DB.statusList||[]).map(x=>x.ten);DB.statusColors={};(DB.statusList||[]).forEach(x=>DB.statusColors[x.ten]=x.mau);
+  DB.sources=(DB.sourceList||[]).map(x=>x.ten);
+  DB.regions=(DB.regionList||[]).map(x=>x.ten);
 }
 async function addCategory(type){
   if(CURRENT.role!=='Admin'&&CURRENT.role!=='Quản lý'){toast('Không có quyền');return;}
-  let tab,data;
-  if(type==='trangthai'){const n=cat_tt_ten.value.trim(),m=cat_tt_mau.value.trim()||'#64748b';if(!n){toast('Nhập tên trạng thái');return;}tab='Trạng thái';data={'Tên trạng thái':n,'Màu sắc':m};}
-  else if(type==='nguon'){const n=cat_ng_ten.value.trim();if(!n){toast('Nhập tên nguồn');return;}tab='Nguồn khách';data={'Tên nguồn khách':n};}
-  else if(type==='khuvuc'){const n=cat_kv_ten.value.trim();if(!n){toast('Nhập tên khu vực');return;}tab='Khu vực';data={'Tên khu vực':n};}
-  else if(type==='sanpham'){const n=cat_sp_ten.value.trim(),g=Number(cat_sp_gia.value)||0;if(!n){toast('Nhập tên sản phẩm');return;}tab='SanPham';data={'Tên sản phẩm':n,'Đơn giá':g};}
+  const editId=catEdit[type];
+  let tab=catTabName(type),data;
+  if(type==='trangthai'){const n=cat_tt_ten.value.trim(),m=cat_tt_mau.value.trim()||'#64748b';if(!n){toast('Nhập tên trạng thái');return;}data={'Tên trạng thái':n,'Màu sắc':m};}
+  else if(type==='nguon'){const n=cat_ng_ten.value.trim();if(!n){toast('Nhập tên nguồn');return;}data={'Tên nguồn khách':n};}
+  else if(type==='khuvuc'){const n=cat_kv_ten.value.trim();if(!n){toast('Nhập tên khu vực');return;}data={'Tên khu vực':n};}
+  else if(type==='sanpham'){const n=cat_sp_ten.value.trim(),g=Number(cat_sp_gia.value)||0;if(!n){toast('Nhập tên sản phẩm');return;}data={'Tên sản phẩm':n,'Đơn giá':g};}
   if(!API_URL){
-    if(type==='trangthai'){DB.statuses.push(data['Tên trạng thái']);DB.statusColors[data['Tên trạng thái']]=data['Màu sắc'];}
-    else if(type==='nguon')DB.sources.push(data['Tên nguồn khách']);
-    else if(type==='khuvuc')DB.regions.push(data['Tên khu vực']);
-    else if(type==='sanpham')DB.products.push({ten:data['Tên sản phẩm'],gia:data['Đơn giá']});
-    toast('Đã thêm (tạm — chưa nối Apps Script)');fillSelects();renderCaiDat();return;
+    if(editId){ // sửa tạm
+      if(type==='trangthai'){const it=DB.statusList.find(x=>x.id==editId);it.ten=data['Tên trạng thái'];it.mau=data['Màu sắc'];}
+      else if(type==='nguon'){DB.sourceList.find(x=>x.id==editId).ten=data['Tên nguồn khách'];}
+      else if(type==='khuvuc'){DB.regionList.find(x=>x.id==editId).ten=data['Tên khu vực'];}
+      else if(type==='sanpham'){const it=DB.products.find(x=>x.id==editId);it.ten=data['Tên sản phẩm'];it.gia=data['Đơn giá'];}
+    }else{ // thêm tạm
+      const nid=Date.now();
+      if(type==='trangthai')DB.statusList.push({id:nid,ten:data['Tên trạng thái'],mau:data['Màu sắc']});
+      else if(type==='nguon')DB.sourceList.push({id:nid,ten:data['Tên nguồn khách']});
+      else if(type==='khuvuc')DB.regionList.push({id:nid,ten:data['Tên khu vực']});
+      else if(type==='sanpham')DB.products.push({id:nid,ten:data['Tên sản phẩm'],gia:data['Đơn giá']});
+    }
+    syncCatStrings();catEdit[type]=null;toast('Đã lưu (tạm — chưa nối Apps Script)');fillSelects();renderCaiDat();return;
   }
-  try{const res=await apiPost({action:'addList',tab,data});if(!res.ok)throw new Error(res.error||'Thêm thất bại');toast('Đã thêm vào '+tab);await reloadData();fillSelects();go('caidat');}
+  try{
+    const res=editId?await apiPost({action:'updateList',tab,id:editId,data}):await apiPost({action:'addList',tab,data});
+    if(!res.ok)throw new Error(res.error||'Thất bại');
+    catEdit[type]=null;toast(editId?'Đã cập nhật '+tab:'Đã thêm vào '+tab);await reloadData();fillSelects();go('caidat');
+  }catch(e){toast('Lỗi: '+e.message);}
+}
+async function deleteCategory(type,id){
+  if(CURRENT.role!=='Admin'&&CURRENT.role!=='Quản lý'){toast('Không có quyền');return;}
+  const tab=catTabName(type);
+  if(!confirm('Xóa mục này khỏi danh mục "'+tab+'"?'))return;
+  if(!API_URL){
+    if(type==='trangthai')DB.statusList=DB.statusList.filter(x=>x.id!=id);
+    else if(type==='nguon')DB.sourceList=DB.sourceList.filter(x=>x.id!=id);
+    else if(type==='khuvuc')DB.regionList=DB.regionList.filter(x=>x.id!=id);
+    else if(type==='sanpham')DB.products=DB.products.filter(x=>x.id!=id);
+    syncCatStrings();toast('Đã xóa (tạm)');fillSelects();renderCaiDat();return;
+  }
+  try{const res=await apiPost({action:'deleteList',tab,id});if(!res.ok)throw new Error(res.error||'Xóa thất bại');toast('Đã xóa khỏi '+tab);await reloadData();fillSelects();go('caidat');}
   catch(e){toast('Lỗi: '+e.message);}
 }
 function tagRole(v){const c={'Admin':'#5b5bd6','Trưởng phòng':'#0ea5e9','Nhân viên':'#64748b'}[v]||'#64748b';return `<span class="tag" style="background:${c}">${v}</span>`;}
+
+/* ---- Người dùng: thêm / sửa / xóa ---- */
+let editingUserId=null;
+function openUserAdd(){if(CURRENT.role!=='Admin'){toast('Chỉ Admin thêm người dùng');return;}editingUserId=null;document.querySelector('#ovUser .modal-h h3').textContent='Thêm người dùng';clearU();u_pass.placeholder='';u_vitri.value='Nhân viên';openModal('ovUser');}
+function openUserEdit(id){
+  if(CURRENT.role!=='Admin'){toast('Chỉ Admin sửa người dùng');return;}
+  const u=DB.users.find(x=>x.id==id);if(!u)return;editingUserId=id;
+  document.querySelector('#ovUser .modal-h h3').textContent='Sửa người dùng #'+id;
+  u_ten.value=u.name||'';u_vitri.value=u.vitri||'Nhân viên';u_user.value=u.user||'';u_pass.value='';u_pass.placeholder='Để trống nếu giữ nguyên';u_pb.value=u.phongBan||'';
+  openModal('ovUser');
+}
 async function saveUser(){
-  if(CURRENT.role!=='Admin'){toast('Chỉ Admin thêm người dùng');return;}
+  if(CURRENT.role!=='Admin'){toast('Chỉ Admin quản lý người dùng');return;}
   const ten=u_ten.value.trim(),us=u_user.value.trim(),pw=u_pass.value.trim();
-  if(!ten||!us||!pw){toast('Nhập tên, tài khoản, mật khẩu');return;}
-  if(!API_URL){DB.users.push({user:us,pass:pw,name:ten,vitri:u_vitri.value,role:roleOf(u_vitri.value),phongBan:u_pb.value});clearU();closeModal('ovUser');toast('Đã thêm (tạm — chưa nối Apps Script)');renderCaiDat();return;}
+  if(!ten||!us||(!editingUserId&&!pw)){toast('Nhập tên, tài khoản, mật khẩu');return;}
+  if(!API_URL){
+    if(editingUserId){const u=DB.users.find(x=>x.id==editingUserId);if(u){u.name=ten;u.user=us;if(pw)u.pass=pw;u.vitri=u_vitri.value;u.role=roleOf(u_vitri.value);u.phongBan=u_pb.value;}}
+    else{DB.users.push({id:Date.now(),user:us,pass:pw,name:ten,vitri:u_vitri.value,role:roleOf(u_vitri.value),phongBan:u_pb.value});}
+    clearU();closeModal('ovUser');toast('Đã lưu (tạm — chưa nối Apps Script)');renderCaiDat();return;
+  }
   const btn=event&&event.target;if(btn){btn.disabled=true;btn.textContent='Đang ghi...';}
-  try{const res=await apiPost({action:'saveUser',data:{
-    'Tên nhân viên':ten,'Vị trí':u_vitri.value,'Tên đăng nhập':us,'Mật khẩu':pw,'Phòng Ban':u_pb.value}});
+  try{
+    const data={'Tên nhân viên':ten,'Vị trí':u_vitri.value,'Tên đăng nhập':us,'Phòng Ban':u_pb.value};
+    if(pw)data['Mật khẩu']=pw;
+    const res=editingUserId?await apiPost({action:'updateUser',id:editingUserId,data}):await apiPost({action:'saveUser',data:Object.assign({'Mật khẩu':pw},data)});
     if(!res.ok)throw new Error(res.error||'Ghi thất bại');
-    clearU();closeModal('ovUser');toast('Đã thêm người dùng lên Sheets');await reloadData();go('caidat');
+    clearU();closeModal('ovUser');toast(editingUserId?'Đã cập nhật người dùng':'Đã thêm người dùng lên Sheets');await reloadData();go('caidat');
   }catch(e){toast('Lỗi: '+e.message);}finally{if(btn){btn.disabled=false;btn.textContent='Lưu người dùng';}}
+}
+async function deleteUser(id){
+  if(CURRENT.role!=='Admin'){toast('Chỉ Admin xóa người dùng');return;}
+  if(String(CURRENT.user)===String((DB.users.find(u=>u.id==id)||{}).user)){toast('Không thể tự xóa tài khoản đang đăng nhập');return;}
+  if(!confirm('Xóa người dùng #'+id+'?'))return;
+  if(!API_URL){DB.users=DB.users.filter(u=>u.id!=id);toast('Đã xóa (tạm)');renderCaiDat();return;}
+  try{const res=await apiPost({action:'deleteUser',id});if(!res.ok)throw new Error(res.error);toast('Đã xóa người dùng');await reloadData();go('caidat');}
+  catch(e){toast('Lỗi: '+e.message);}
+}
+function toggleAllUser(box){document.querySelectorAll('.uChk').forEach(c=>c.checked=box.checked);}
+async function deleteUserBulk(){
+  if(CURRENT.role!=='Admin'){toast('Chỉ Admin xóa người dùng');return;}
+  const ids=[...document.querySelectorAll('.uChk:checked')].map(c=>c.value);
+  if(!ids.length){toast('Chưa chọn người dùng nào');return;}
+  if(!confirm('Xóa '+ids.length+' người dùng đã chọn?'))return;
+  if(!API_URL){DB.users=DB.users.filter(u=>!ids.includes(String(u.id)));toast('Đã xóa '+ids.length+' (tạm)');renderCaiDat();return;}
+  const btn=document.getElementById('uDelSel');if(btn){btn.disabled=true;btn.textContent='Đang xóa...';}
+  let ok=0;for(const id of ids){try{const r=await apiPost({action:'deleteUser',id});if(r.ok)ok++;}catch(e){}}
+  toast('Đã xóa '+ok+'/'+ids.length+' người dùng');await reloadData();go('caidat');
 }
 function clearU(){['u_ten','u_user','u_pass','u_pb'].forEach(id=>document.getElementById(id).value='');}
 
